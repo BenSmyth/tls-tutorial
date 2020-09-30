@@ -1,0 +1,210 @@
+\section{Record protocol}\label{sec:record}
+
+Handshake messages are encapsulated into one or more \TLSPlaintext\ records (\S\ref{sec:TLSPlaintext}), 
+which, for \ClientHello, \ServerHello\ and \HelloRetryRequest\ messages, are 
+immediately written to the transport layer, otherwise, \TLSPlaintext\ records are 
+translated to \TLSCiphertext\ records (\S\ref{sec:TLSCiphertext}), which add protection 
+prior to writing to the transport layer. (Alerts are similarly encapsulated and when 
+appropriate protected. Application data is always encapsulated and protected.)
+
+\subsection{\TLSPlaintext}\label{sec:TLSPlaintext}
+
+Handshake messages are fragmented and each fragment is encapsulated into a 
+\TLSPlaintext\ record, comprising the following fields:
+
+\begin{description}
+
+\item \TLStype: Constant 0x22 (\TLShandshake). (Other constants are used for records 
+  encapsulating data other than handshake messages, e.g., alerts and application 
+  data.)
+
+\item \TLSlegacyRecordVersion: Constant 0x0303, except for an initial \ClientHello\
+  message, which may use constant 0x0301. 
+
+
+\item \TLSlength: The byte length of the following field (namely, \TLSfragment), which must not exceed
+  $2^{14}$ bytes.
+
+\item \TLSfragment: A handshake message fragment.
+
+\end{description}
+
+\noindent
+An endpoint that receives a \TLSPlaintext\ record with field \TLSlength\ set 
+greater than $2^{14}$ must abort with a \TLSrecordOverflow\ alert.
+
+\subsection{\TLSCiphertext}\label{sec:TLSCiphertext}
+
+For protection, a \TLSPlaintext\ record is transformed into 
+a \TLSCiphertext\ record, comprising of the following fields:
+
+\begin{description}
+
+\item \TLSopaqueType: Constant 0x23. 
+
+\item \TLSlegacyRecordVersion: Constant 0x0303.
+
+\item \TLSlength: The byte length of the following field (namely, \TLSencryptedRecord), which must not 
+  exceed $2^{14} + 256$ bytes.
+
+\item \TLSencryptedRecord:  Encrypted data.
+
+\end{description}
+
+\noindent
+Encrypted data is computed, using the negotiated AEAD algorithm,
+as 
+\[
+  %\TLSAEADEncrypted =
+    \AEADEnc(\textit{write\_key}, \textit{nonce}, \textit{additional_data}, \textit{plaintext}),
+\]
+where \textit{write\_key} is either \TLSclientWriteKey\ or \TLSserverWriteKey;
+\textit{nonce} is derived from a sequence number XORed with \TLSclientWriteIV\ or 
+\TLSserverWriteIV, respectively; \textit{additional_data} is the \TLSCiphertext\ 
+record header, i.e., 
+$\textit{additional_data} = 
+            \TLSCiphertext.\TLSopaqueType \parallel 
+            \TLSCiphertext.\TLSlegacyRecordVersion \parallel 
+            \TLSCiphertext.\TLSlength$;
+and \textit{plaintext} comprises of \TLSPlaintext.\TLSfragment\ appended with type
+\TLSPlaintext.\TLStype\ and field \TLSzeros, which contains an arbitrary-length run 
+of zero-valued bytes and is used to pad a TLS record (the resulting plaintext is known as 
+record \TLSInnerPlaintext).
+
+An endpoint that receives a \TLSCiphertext\ record with field \TLSlength\ set 
+greater than $2^{14} + 256$ must abort with a \TLSrecordOverflow\ alert. Otherwise,
+the endpoint computes 
+\[
+  \AEADDec(\textit{write\_key}, \textit{nonce},  \textit{additional_data}, %\TLSAEADEncrypted),
+     \TLSCiphertext.\TLSencryptedRecord),
+\]
+which outputs a plaintext or terminates with an error. The endpoint aborts
+with a \TLSbadRecordMac\ alert in the event of such an error.
+
+
+\paragraph{Per-record nonce.}
+
+The nonce used by the negotiated AEAD algorithm is derived from a 64-bit
+sequence number, which is initialised as 0, incremented by one after 
+reading or writing a record, and reset to 0 whenever the key is changed. 
+That sequence number is XORed with \TLSclientWriteIV\ 
+or \TLSserverWriteIV\ to derive the nonce.
+
+\begin{tcolorbox}
+Outgoing records are produced by class \code{SSLSocketOutputRecord} 
+(Listing~\ref{lst:SSLSocketOutputRecord}) and parent \code{OutputRecord} 
+(Listing~\ref{lst:OutputRecord}), using enum \code{SSLCipher} 
+(Listing~\ref{lst:SSLCipher}) to protect outgoing records.
+(Alternatively, outgoing records are constructed by class 
+\code{SSLEngineOutputRecord}, which shares the same parent.) 
+Incoming records are consumed by class \code{SSLSocketInputRecord} 
+(or \code{SSLEngineInputRecord}) and parent \code{InputRecord}, which 
+uses enum \code{SSLCipher} for record protection.
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    38-38,
+    39-39,
+    94-95,
+    147-163,
+    165-166,
+    168-172,
+    181-182,
+    184-186,
+    193-194,
+    196-199,
+    589-589
+  },
+  label=lst:SSLSocketOutputRecord,
+  caption={[\code{SSLSocketOutputRecord.encodeHandshake} fragments outgoing handshake messages]
+  Class \code{SSLSocketOutputRecord} defines method \code{encodeHandshake} to fragment 
+  outgoing handshake messages and write fragments to (its parent's) buffer \code{buf} (Lines~159 \&~169), 
+  using  method \code{ByteArrayOutputStream.write}, 
+  which (if full) is processed by parent \code{OutputRecord} (Line~182) and delivered
+  (Lines~185--186). \ifPresentationNotes\textcolor{red}{What special case is dealt with on Line~159? TO DO: 
+  Give further explanation of the for-loop}\fi
+  The class is also responsible for adding the encapsulated message to the transcript hash, 
+  if appropriate (Lines~147--150).
+}]{listings/SSLSocketOutputRecord.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    42-43,
+    %44-44,     %%Constructor
+    %48-49,
+    %66-66,
+    %82-85,
+    %87-87,
+    %90-90,
+    %248-256,   %%Used by SSLEngineOutputRecord
+    %270-272,
+    %279-279,
+    %322-359,
+    %
+    %385-388,
+    389-390,
+    392-392,
+    396-396,
+    398-400,
+    402-445  
+  },
+  label=lst:OutputRecord,
+  caption={[\code{OutputRecord.t13Encrypt} produces records \TLSPlaintext\ or \TLSCiphertext]
+  Class \code{OutputRecord} defines method \code{t13Encrypt} which appends constant 0x22
+  (defined by variable \code{ContentType.HANDSHAKE.id}) and padding (defined by constant
+  \code{zeros}) to buffer \code{buf} if outgoing data should be encrypted (Lines~404--408), 
+  i.e., when producing record \TLSCiphertext, as opposed to \TLSPlaintext; encrypts the data 
+  in that buffer (Lines~432--433), using a null cipher (\code{SSLCipher.NullReadCipherGenerator})
+  %%%
+  %%% Method SSLCipher.NullReadCipherGenerator.encrypt includes the following:
+  %%%
+  %%%   MAC signer = (MAC)authenticator;
+  %%%   if (signer.macAlg().size != 0) {
+  %%%      addMac(signer, bb, contentType);
+  %%%   } else {
+  %%%      authenticator.increaseSequenceNumber();
+  %%%   }
+  %%%
+  %%% which suggests a MAC can be added. However, CipherSuite.MacAlg defines M_NULL
+  %%% such that M_NULL.size = 0. So I suspect M_NULL is in use and no MAC is added.
+  %%%
+  if data should not be encrypted and a cipher in Galois/Counter Mode 
+  (\code{SSLCipher.T13GcmWriteCipherGenerator}) otherwise; and 
+  adds the header fields for record \TLSPlaintext\ or \TLSCiphertext\ (Lines~438--442), which 
+  only differ on the first byte, in particular, the former uses constant 0x22 (which is input 
+  by child \code{SSLSocketOutputRecord}, in the context of Listing~\ref{lst:SSLSocketOutputRecord}),
+  whereas the latter uses constant 0x23 (Line~427).
+}]{listings/OutputRecord.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    1945-1946,
+    1956-1973,
+    1987-1987,
+    1990-2005,
+    2006-2006,
+    2009-2009,
+    2011-2018,
+    %2025-2033,
+    2035-2039,
+    2043-2043,
+    2054-2055,
+    2082-2083
+  },
+  label=lst:SSLCipher,
+  caption={[\code{SSLCipher.T13GcmWriteCipherGenerator} encrypts data in Galois/Counter Mode]
+  Class \code{SSLCipher.T13GcmWriteCipherGenerator} defines method \code{encrypt} which 
+  XORs the sequence number and initialisation vector (Lines~1992--1997); initialises a 
+  cipher (Line~2003), using algorithm parameters that define the bit length of the 
+  authentication tag and the initialisation vector (Lines~2000-2001); and encrypts the
+  input data (Line~2036), appending the authentication tag (Lines~2013--2016), which 
+  increments the sequence number as a side effect. (Method \code{Authenticator.TLS13Authenticator.acquireAuthenticationBytes} increments the 
+  sequence number using method \code{Authenticator.increaseSequenceNumber}.)
+}]{listings/SSLCipher.java}%

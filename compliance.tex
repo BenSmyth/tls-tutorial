@@ -1,0 +1,114 @@
+\section{Compliance}
+\textcolor{red}{Possible idea for this section:}
+Establishing whether an implementation is compliant with 
+the specification is an overwhelming task. To make the task more 
+readily achievable, we provide a check list of requirements, which 
+we have used to evaluate compliance of Oracle's Java implementation
+(Table~\ref{table:compliance}). 
+Implementing an automated test suite -- which nefarious 
+users might refer to as an attack tool\sout{ for their arsenal}, 
+demonstrating the need for such a suite to keep pace -- would be quite 
+nice!
+
+\newcommand{\codeA}[1]{#1}
+
+
+\begin{landscape}
+\begin{table}
+\caption{TLS 1.3 compliance check list (including RFC 8446 line numbers and 
+  page reference to discussion in this document) and compliance evaluation of 
+  Oracle's Java implementation (including source-code line numbers and any page
+  reference to those lines in this document)
+  \textcolor{red}{Macro \texttt{code} isn't working in the table.}}
+\label{table:compliance}
+\begin{tabular}{p{0.63\linewidth}|p{0.37\linewidth}}
+\multicolumn{2}{l}{\textbf{\ClientHello}: \emph{Client-side production requirements}}  \\ \hline\hline  
+Requirement          & Implementation                 \\ \hline 
+
+...
+  & ... \\ \hline
+
+...
+  & ... \\ \hline
+
+%\hline
+
+\multicolumn{2}{l}{\textbf{\ClientHello}: \emph{Server-side consumption requirements}}  \\ \hline \hline
+Requirement          & Implementation                 \\ \hline 
+
+
+No overlapping group: 
+Abort with \TLShandshakeFailure\ or \TLSinsufficientSecurity\
+(Lines~1434--1437 / p\pageref{comp:CH:cons:cipher})
+  & \codeA{ServerHello.T13ServerHelloProducer}: 526--530 \\ \hline
+
+Any pre-shared key identifier must be paired with a 
+key exchange mode (Lines~1439--1442 / p\pageref{comp:CH:cons:psk})
+  & ... \\ \hline
+
+
+%If a client does not offer a key share for the group selected by a
+%server, the server must respond with a \HelloRetryRequest\ message
+No offered key share for a selected group: Responds with \HelloRetryRequest\ 
+(Lines~1446--1448 / p\pageref{comp:CH:cons:HRR})
+  & \codeA{ClientHello.T13ClientHelloConsumer}: 1121--1124 
+    (p\pageref{lst:T13ClientHelloConsumer})\\ \hline
+
+
+...
+  & ... \\ \hline
+
+\hline
+
+\multicolumn{2}{l}{\textbf{\ServerHello}: \emph{Server-side production requirements}} \\ \hline \hline
+Requirement          & Implementation               \\ \hline 
+
+
+Any key share must be in the same group as an offered share
+  (Lines~640--643 / p\pageref{comp:SH:prof:keyShare})
+  & ...to do... \\ \hline
+
+...
+  & ... \\ \hline
+
+\hline
+
+\multicolumn{2}{l}{\textbf{\ServerHello}: \emph{Client-side consumption requirements}} \\ \hline \hline
+Requirement          & Implementation               \\ \hline 
+
+%If a server does not select a protocol version offered by the client
+%or selects a version prior to 1.3 (in extension \TLSsupportedVersions), 
+%the client must abort with a \TLSillegalParameter\ alert
+Selected protocol version not offered or prior to version 1.3 
+(in extension \TLSsupportedVersions): Abort with \TLSillegalParameter\
+(Lines~2194--2198 / p\pageref{comp:SH:cons:version}).
+  & \codeA{ServerHello.ServerHelloConsumer}: 949--954 (p\pageref{lst:ServerHelloConsumer}) \\ \hline
+
+...
+  & ... \\ \hline
+
+\hline
+
+\multicolumn{2}{l}{\textbf{\HelloRetryRequest}: \emph{Server-side production requirements}} \\ \hline \hline
+Requirement          & Implementation               \\ \hline 
+
+...
+  & ... \\ \hline
+
+\hline
+
+\multicolumn{2}{l}{\textbf{\HelloRetryRequest}: \emph{Client-side consumption requirements}} \\ \hline \hline
+Requirement          & Implementation               \\ \hline 
+
+Any extension \TLScookie\ and associated data must be 
+copied into any resulting \ClientHello\ message 
+(Lines~2222--2224 / p\pageref{comp:HRR:cons:cookie}
+  & ...to do... \\ \hline
+
+...
+  & ... \\ \hline
+
+\end{tabular}
+\end{table}
+\end{landscape}
+

@@ -1,0 +1,38 @@
+\subsubsection{\KeyUpdate}
+
+After sending a \Finished\ message, an endpoint may send a \KeyUpdate\ message
+to notify their peer that they are updating their cryptographic key. The message 
+comprises of the following field:
+
+\begin{description}
+
+\item \TLSrequestUpdate: A bit indicating whether the recipient should 
+  respond with their own \KeyUpdate\ message and update their own cryptographic
+  key.
+
+\end{description}
+
+\noindent
+After sending a \KeyUpdate\ message, the sender must update their application-traffic 
+secret and corresponding application-traffic keys (\S\ref{sec:secrets}--\ref{sec:hkdf:trafficKeys}).
+
+A peer that receives a \KeyUpdate\ message prior to receiving a \Finished\ 
+message aborts with an \TLSunexpectedMessage\ alert, moreover, the peer 
+aborts with an \TLSillegalParameter\ alert if field \TLSrequestUpdate\ does not
+contain a bit. Otherwise, the peer updates its receiving keys
+(\S\ref{sec:secrets}--\ref{sec:hkdf:trafficKeys}). Moreover, when the sender
+requests that the peer updates their sending keys, the peer must send a
+\KeyUpdate\ message of its own (without requesting that the sender update 
+its cryptographic key), prior to sending any further application data.
+
+\begin{tcolorbox}
+\KeyUpdate\ messages are implemented, produced, and consumed by inner-classes of 
+class \code{KeyUpdate}. Those classes define the one field of a \NewSessionTicket\ 
+message and constructors to instantiate it from parameters or an input buffer, moreover,
+they define methods to write such a message to an output stream and to read such a message 
+from an input buffer, those methods also update application-traffic secrets and 
+corresponding application-traffic keys, and the latter produces a \KeyUpdate\ message
+of the receiver when requested by the sender.
+\end{tcolorbox}
+
+

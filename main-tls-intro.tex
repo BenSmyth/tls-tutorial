@@ -1,0 +1,312 @@
+\documentclass[envcountsame]{article}
+
+\newif\ifSpecNotes\SpecNotesfalse
+\newif\ifImplNotes\ImplNotesfalse
+\newif\ifPresentationNotes\PresentationNotesfalse
+
+\usepackage[normalem]{ulem}
+%\usepackage{color}
+%\usepackage{xcolor}
+
+\usepackage{a4wide}
+%\usepackage[vlined,commentsnumbered]{algorithm2e}
+\usepackage{amsfonts}
+\usepackage[fleqn]{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{authblk}
+\usepackage{cite}
+\usepackage[T1]{fontenc}
+%\usepackage{float}\floatstyle{ruled}\restylefloat{table}
+\usepackage{floatrow}\floatsetup[table]{capposition=bottom}%\floatsetup[table]{style=ruled,capposition=bottom}
+\newfloat{Sidebar}{tbp}{saux}\floatstyle{ruled}\restylefloat{Sidebar}
+\usepackage{hyperref}
+\usepackage{listings} 
+\usepackage{mathtools}
+\usepackage{pdflscape}
+\usepackage{tcolorbox}\tcbset{boxrule=0.5pt,colback=red!3!white,beforeafter skip=\baselineskip}
+\usepackage{tikz}\usetikzlibrary{automata,positioning,arrows}
+\usepackage{verbatim}
+\usepackage[nohyphen]{underscore}
+\usepackage{url}
+
+\input{macros}
+
+
+%\renewcommand{\topfraction}{0.849}    
+%\renewcommand{\textfraction}{0.15}
+%\renewcommand{\floatpagefraction}{.89}
+
+%%\setcounter{topnumber}{4}  
+%%\renewcommand{\bottomfraction}{0.95} 
+
+
+
+%%
+%% Hack for \scriptsize fonts inside \marginpar
+%%
+\makeatletter
+\long\def\@ympar#1{%
+  \@savemarbox\@marbox{\scriptsize #1}%
+  \global\setbox\@currbox\copy\@marbox
+  \@xympar}
+\makeatother
+
+%%
+%% Hack to use source file line numbers
+%% Source: https://tex.stackexchange.com/a/297349/59197
+%% 
+\makeatletter
+\def\lst@MSkipToFirst{%
+    \global\advance\lst@lineno\@ne
+    \ifnum \lst@lineno=\lst@firstline
+        \def\lst@next{\lst@LeaveMode \global\lst@newlines\z@
+        \lst@OnceAtEOL \global\let\lst@OnceAtEOL\@empty
+        \lst@InitLstNumber % Added to work with modified \lsthk@PreInit.
+        \lsthk@InitVarsBOL
+        \c@lstnumber=\numexpr-1+\lst@lineno % this enforces the displayed line numbers to always be the input line numbers
+        \lst@BOLGobble}%
+        \expandafter\lst@next
+    \fi}
+\makeatother
+
+%%
+%% Hack to gobble inside lstinputlisting
+%% Source: https://tex.stackexchange.com/a/89541/59197
+%% 
+%% As an uglier, more blatant hack, the following can be 
+%% included inside lstset:
+%%    framexleftmargin=-2em,numbersep=-1em,xleftmargin=-2em   
+%% Source: https://tex.stackexchange.com/questions/43686/autogobble-for-lstinputlistings#comment100425_48570
+%% 
+\newlength{\rawgobble}
+\newlength{\gobble}
+\newlength{\gobblea}
+% The width of a single space. basicstyle from lstset should be used
+\sbox0{\Huge\ttfamily \ }
+% Remove a single space
+\settowidth{\rawgobble}{\Huge\ttfamily \ }
+\setlength{\rawgobble}{-\rawgobble}
+
+\makeatletter
+\def\sepstar#1*#2\relax{%
+    \def\sepstarone{#1}%
+    \def\sepstartwo{#2}%
+}
+\lst@Key{widthgobble}{0*0}{%
+    % Reindent a bit by multiplying with 0.9, then multiply by tabsize and number of indentation levels
+    \sepstar #1\relax
+    \setlength{\gobble}{0.9\rawgobble}%
+    \setlength{\gobble}{\sepstarone\gobble}%
+    \setlength{\gobble}{\sepstartwo\gobble}%
+    \setlength{\gobblea}{\gobble}%
+    \addtolength{\gobblea}{10pt}%
+    \def\lst@xleftmargin{\gobble}%
+    \def\lst@framexleftmargin{\gobble}%
+    \def\lst@numbersep{\gobblea}%
+}
+\makeatother
+
+%% 
+%% Hack to add space at the end of a linerange
+%%
+\makeatletter
+\def\tinyskip{\vspace\tinyskipamount}
+\newskip\tinyskipamount \tinyskipamount=2pt 
+
+\def\lst@MProcessListing{%
+    \lst@XPrintToken \lst@EOLUpdate \lsthk@InitVarsBOL
+    \global\advance\lst@lineno\@ne
+    \ifnum \lst@lineno>\lst@lastline
+        \lst@ifdropinput \lst@LeaveMode \fi
+        \ifx\lst@linerange\@empty
+            \expandafter\expandafter\expandafter\lst@EndProcessListing
+        \else
+            \lst@interrange
+            \lst@GetLineInterval
+            \expandafter\expandafter\expandafter\lst@SkipToFirst{}\tinyskip
+        \fi
+    \else
+        \expandafter\lst@BOLGobble
+    \fi}
+\makeatother
+
+
+\lstset{
+  language=Java,
+  frame=lines,
+  captionpos=b,
+  basicstyle=\footnotesize,
+  numberstyle=\tiny,
+  numbers=left,
+  emptylines=2,
+  showlines=true,
+  widthgobble=1*1,%%gobble hack
+}
+
+\tikzset{
+  initial text={},
+  every edge/.style={draw,->,>=stealth',semithick}
+}
+
+\lstdefinestyle{inlinestyle}{
+  basicstyle=\lst@ifdisplaystyle\footnotesize\fi, %https://tex.stackexchange.com/a/161551/59197
+  columns=fullflexible, %https://tex.stackexchange.com/questions/79952/unequal-letter-spacing-in-listings
+  breaklines=true,
+  literate={\\-}{}{0\discretionary{-}{}{}}
+}
+
+\newcommand{\code}{\lstinline[style=inlinestyle]} 
+%Hack to fix highlighting bug in gtksourceview/GEdit, by adding the following braces {[
+
+\pagestyle{headings}
+
+\newcommand{\ben}[1]{\textcolor{magenta}{#1}}
+
+
+%\SetKwRepeat{Do}{do}{while}
+
+%\newcommand{\llIf}[2]{{\let\par\relax\lIf{#1}{#2}}}
+%\newcommand{\lleIf}[3]{{\let\par\relax\lIf{#1}{#2} \lElse{#3}}}
+%\newcommand{\llFor}[2]{{\let\par\relax\lFor{#1}{#2}}}
+%\newcommand{\llWhile}[2]{{\let\par\relax\lWhile{#1}{#2}}}
+
+
+%\title{A Java Engineer's perspective of TLS 1.3}
+%\title{A (Java) Engineer's perspective of TLS 1.3}
+%\title{An engineering perspective of TLS 1.3}
+%\title{Engineering TLS 1.3}
+%\title{TLS 1.3 for (Java) engineers}
+%\title{TLS 1.3 for engineers}
+\title{TLS 1.3 for engineers: 
+        An exploration of the TLS 1.3 specification 
+        %with Oracle's Java implementation and OpenSSL's C implementation
+        %with implementations from Oracle and OpenSSL
+        %with implementations in C and Java
+        %with Java source from Oracle and C source from The OpenSSL Project
+        %with source from Oracle and OpenSSL
+        %with C and Java source 
+        %and Oracle's Java implementation
+        and OpenJDK's Java implementation %Thanks to Adam Petcher (email, 28 May 2020) for pointing out that discrepancy
+}
+
+
+
+
+
+\author{Ben Smyth}
+\affil{\href{https://cryptostream.ltd/}{Crypto Stream} Ltd. 
+          \& \href{https://x26.io/}{Ampersand} (0x26 Ltd.), UK}
+\date{30 Sep 2020}
+
+
+
+
+\begin{document}
+
+\maketitle 
+\thispagestyle{empty} 
+%\ifPresentationNotes
+%\input{abstract}
+%\marginpar{Potential venues: computer science review, ACM Computing Surveys, Proceedings of the IEEE, and Springer's Information Security and Cryptography (ISC) series.}
+%\fi
+\newpage
+
+\input{contribute}
+\input{versions}
+\input{acknowledgements}
+\newpage
+
+\input{legal}
+\newpage
+
+\tableofcontents
+%\listoffigures
+\newpage
+
+%\newcommand{\cont}[1]{~~"~~(cont.)}
+\lstlistoflistings
+\newpage
+
+%\input{preface}
+
+
+\input{introduction}
+
+\input{handshake}
+  \input{handshakeCH}
+  \input{handshakeSH}
+  \input{handshakeHRR}
+  \input{HKDF}
+  \input{handshakeEE}
+  \input{handshakeAuth}
+  \input{handshakeEarly}
+  \subsection{Further features}
+  \input{handshakeNST}
+  \input{handshakeKU}
+
+
+\input{record}
+
+\input{programmers}
+
+\ifPresentationNotes
+\section{Security}
+
+\textcolor{red}{Informally explain TLS security properties (as per the spec) and 
+  provide informal reasoning as to how these properties are satisfied.}
+\fi
+
+\ifPresentationNotes
+\input{compliance}
+\fi
+
+\ifPresentationNotes
+\section{Cryptography}
+
+\textcolor{red}{Perhaps include some details on the underlying cryptography, especially in terms
+  of establishing a shared secret from key shares (\S\ref{sec:dheKey}), perhaps also 
+  on AEAD algorithms (\S\ref{sec:aead}).}
+
+\subsection{(EC)DHE (shared secret) key derivation}\label{sec:dheKey}
+
+
+\textcolor{red}{\code{KeyShareExtension} uses \code{SSLKeyExchange.valueOf} to 
+  construct an instance of \code{SSLKeyExchange} that parametrises field 
+  \code{SSLKeyExchange.keyAgreement} with an instance of \code{T13KeyAgreement}.
+  Hence, calling method \code{SSLKeyExchange.createKeyDerivation} calls
+  \code{T13KeyAgreement.createKeyDerivation}, which is used as part of 
+  traffic key generation.}
+
+\subsection{AEAD algorithms}\label{sec:aead}
+
+...
+
+
+Discussion on the advantages of AEAD: \url{https://crypto.stackexchange.com/questions/27243/what-is-the-advantage-of-aead-ciphers}
+
+CBC + HMAC achieves AEAD: \url{https://tools.ietf.org/html/draft-mcgrew-aead-aes-cbc-hmac-sha2-01}
+
+Tutorial: \url{https://www.youtube.com/watch?v=g_eY7JXOc8U}
+
+\fi
+
+
+%\section{Outlook}
+%
+%...
+
+\appendix
+%\input{specification}
+\input{extensions}
+\input{alerts}
+\input{handshakeCR}
+
+
+
+
+%\bibliographystyle{alpha}
+%\bibliography{main-tls}
+
+
+\end{document}

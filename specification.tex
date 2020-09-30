@@ -1,0 +1,120 @@
+\newcommand{\genericType}{\texttt{T}}
+
+\newcommand{\TLSPrimitiveType}[1]{\textsf{#1}}
+
+\newcommand{\uint}{\TLSPrimitiveType{uint8}}
+\newcommand{\uintSixteen}{\TLSPrimitiveType{uint16}}
+\newcommand{\uintTwentyFour}{\TLSPrimitiveType{uint24}}
+\newcommand{\uintThirtyTwo}{\TLSPrimitiveType{uint32}}
+\newcommand{\uintSixtyFour}{\TLSPrimitiveType{uint64}}
+\newcommand{\opaque}{\TLSPrimitiveType{opaque}}
+
+\newcommand{\struct}{\TLSPrimitiveType{struct}}
+\newcommand{\genericField}{f}
+
+\section{Specification}\label{sec:specification}
+
+\textcolor{blue}{This appendix includes code listings from RFC 8446.  
+  If they are used, then the necessary license should be included.}
+
+\textcolor{red}{Recalling formal syntax doesn't seem particularly useful;
+  readers can refer to the RFC. Drop this appendix?}
+ 
+
+\marginpar{There are perhaps better ways to present the syntax.}
+
+This appendix recalls specifications for \ClientHello\ (Listing~\ref{lst:ClientHello})
+and \ServerHello\ (Listing~\ref{lst:ServerHello}) messages. Those specifications 
+are stated using the following syntax: Basic type 
+%
+  \uint\
+%
+is defined as an unsigned 8 bit integer. Types can be aliased and 
+%
+  \genericType\ \genericType'\ 
+%
+denotes aliasing type \genericType\ as new type \genericType'. 
+For readability, a single byte containing uninterpreted 
+data is aliased:
+%
+  \uint\ \opaque.
+%
+Multi-byte types can be derived by concatenation and
+%
+  \genericType\ \genericType'[n]
+%
+denotes a new type \genericType' that is an $n$-byte 
+vector of type \genericType, under the constraint that 
+$n$ is a multiple of the size of \genericType. Hence, 16, 
+24, 32, and 32 bit unsigned integers are introduced as follows:
+%
+  \uint\ \uintSixteen[2];
+  \uint\ \uintTwentyFour[3];
+  \uint\ \uintThirtyTwo[4];
+  \uint\ \uintSixtyFour[8].
+%
+Variable-length vectors are denoted
+%
+  \genericType\ \genericType'\textless{}floor..ceiling\textgreater{},
+%
+where `floor' and `ceiling' define lower and upper byte
+bounds, under the constraint that they are multiples of 
+the size of \genericType.
+Data of variable-length is prepended with the data's
+actual length when streamed.
+%%
+%%
+%%
+Structured types may be constructed from primitives types and 
+%
+  \struct~\{ \genericType1 \genericField1; \genericType2 \genericField2; ...; \genericType{}n \genericField{}n~\} \genericType\
+%
+denotes a structured type \genericType\ containing 
+field \genericField1 of type \genericType1, 
+field \genericField2 of type \genericType2, and 
+similarly for \genericField3,\genericType3, ..., \genericField{}n,\genericType{}n. 
+Fields may be assigned a fixed value using ``='', e.g., 
+%
+\struct~\{ 
+  \genericType\ \genericField\ = 8; 
+  \genericType' \genericField'~\} 
+\genericType\ 
+%
+assigns 8 to \genericType.\genericField.
+
+
+\lstinputlisting[
+  float=t,
+  linerange={
+    1541-1553,%ClientHello
+    1915-1919%Extension
+  },
+  label=lst:ClientHello,
+  caption={[\ClientHello\ specification]
+    \ClientHello\ specification, which aliases type 
+    \TLSProtocolVersion\ as a 16 bit unsigned integer (Line~1541), 
+    \TLSRandom\ as a 32 byte unsigned integer (Line~1542), and 
+    \TLSCipherSuite\ as a 2 byte integer (Line~1544),
+    and defines structured type \ClientHello\ (Lines 1546--1553).
+    The structured type defines field \TLSlegacyVersion\ as constant 0x0303
+    of aliased type \TLSProtocolVersion\ and field \TLSrandom\ of aliased
+    type \TLSRandom, both of which are fixed length. The remaining fields
+    are all variable length, for instance, \TLSlegacySessionId\ is a {0--32} 
+    byte field of type \opaque. 
+}]{listings/rfc8446.txt}
+ 
+
+\lstinputlisting[
+  float=tb,
+  linerange={
+    1695-1702
+  },
+  label=lst:ServerHello,
+  caption={[\ServerHello\ specification]
+    \ServerHello\ specification, which defines structured type \ServerHello.
+    The structured type is similar to structured type \ClientHello, except
+    \ClientHello\ fields \TLSlegacySessionId, \TLScipherSuites, and
+    \TLSlegacyCompressionModes\ are replaced by fields \TLSlegacySessionIdEcho,
+    \TLScipherSuite, and \TLSlegacyCompressionMode, respectively.
+}]{listings/rfc8446.txt}
+

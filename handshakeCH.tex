@@ -1,0 +1,603 @@
+\subsection{\ClientHello}\label{sec:handshakeCH}\label{sec:CH}
+
+\ifPresentationNotes
+\marginpar{Maybe customise use of \texttt{lstinline}, which is wrapped inside 
+  command \texttt{code} (defined in \texttt{main-tls-intro.tex}), to improve inline code listings.\\
+  \textbf{Dear \LaTeX\ guru}, Please fix this, it will make reading this manuscript
+  far easier for you (and everyone else). Please also fix other presentational/formatting issues.}
+\fi
+
+The handshake protocol is initiated by a \ClientHello\ message, %(specified in Appendix~\ref{sec:specification})
+comprising the following fields:
+
+\begin{description}
+
+\item \TLSlegacyVersion: Constant 0x0303.
+%
+%\footnote{Previous versions of TLS used this field for the highest 
+%  offered protocol version of the client, but experience has shown that
+%  servers implement version negotiation rather poorly, in particular, 
+%  some servers reject \ClientHello\ messages with a version number
+%  higher than it supports. In TLS 1.3, the client offers protocol 
+%  versions in an extension.}
+%
+(Previous versions of TLS used this field for the client's highest offered 
+  protocol version. In TLS 1.3, protocol versions are offered in an 
+  extension, as explained below.)
+  % The field remains for backwards compatibility.)
+
+\item \TLSrandom: A 32 byte nonce.
+
+\item \TLSlegacySessionId: A zero-length vector, except to 
+  resume an earlier pre-TLS 1.3 session or for ``compatibility 
+  mode.'' (Previous versions of TLS used this field for 
+  ``session resumption.'' In TLS 1.3, that feature has been 
+  merged with pre-shared keys.)
+  %Again, the field remains for backwards compatibility.)
+
+\item \TLScipherSuites: A list of offered \emph{symmetric cipher suites} in
+  descending order of client preference, where a suite defines a value identifying an Authenticated Encryption 
+  with Associated Data (AEAD) algorithm and a hash function (Table~\ref{table:suites}).\footnote{
+    Support for cipher suite TLS\_AES\_128\_GCM\_SHA256 is mandatory (unless an implementation 
+    explicitly opts out), and cipher suites TLS\_AES\_256\_GCM\_SHA384 and 
+    TLS\_CHACHA20\_POLY1305\_SHA256 should also be supported.
+  }
+
+
+\begin{table}[tbp]
+\caption{Symmetric cipher suites defined by a value identifying
+  an AEAD algorithm and a hash function. Suites are named in the 
+  format TLS\_AEAD\_HASH, where AEAD and HASH are replaced by the 
+  corresponding algorithm and function names.}
+\label{table:suites}
+
+\centering
+
+\begin{tabular}{l|l}
+  Name                             & Value  \\ \hline
+  TLS\_AES\_128\_GCM\_SHA256       & 0x1301 \\
+  TLS\_AES\_256\_GCM\_SHA384       & 0x1302 \\
+  TLS\_CHACHA20\_POLY1305\_SHA256  & 0x1303 \\
+  TLS\_AES\_128\_CCM\_SHA256       & 0x1304\\
+  TLS\_AES\_128\_CCM\_8\_SHA256    & 0x1305
+\end{tabular}
+\end{table}
+
+\item \TLSlegacyCompressionModes: Constant 0x00. %byte set to zero. 
+  (Previous versions of TLS used this field to list supported compression methods.
+  In TLS 1.3, this feature has been removed.)
+  % The field remains for backwards compatibility.)
+
+\ifPresentationNotes\marginpar{Maybe mention that hex values are used in place of (extension) names}\fi
+\item \TLSextensions: A list of \emph{extensions}, where an extension comprises 
+  a name along with associated data. The list must contain at least extension
+  \TLSsupportedVersions\ %(0x002B) \marginpar{drop hex names?}
+  associated with a list of offered protocol versions 
+  in descending order of client preference, minimally including constant 0x0304,
+  denoting TLS 1.3.
+
+\end{description}
+
+\noindent
+Legacy fields \TLSlegacyVersion, \TLSlegacySessionId, and \TLSlegacyCompressionModes\
+are included for backwards compatibility.
+
+\ifPresentationNotes
+\marginpar{Perhaps elaborate on the produce/consume design}
+
+\marginpar{I've overridden \texttt{listings.sty} (in \texttt{main-tls-intro.tex}) 
+  to add vertical space (controlled by \texttt{tinyskip}) at the end of a 
+  \texttt{linerange}, e.g., see Listing~\ref{lst:ClientHelloMessage}, between 
+  Lines~71~\&~74, for example. I'm unsure whether it helps.}
+\fi
+
+\begin{tcolorbox}
+The \ClientHello\ message is implemented by class 
+\code{ClientHello.ClientHelloMessage} 
+%(Listings~\ref{lst:ClientHelloMessage} \&~\ref{lst:ClientHelloMessageB}). 
+(Listing~\ref{lst:ClientHelloMessage}).
+Instances of that class are produced by class 
+\code{ClientHello.Client\-Hello\-Kickstart\-Producer} 
+(Listing~\ref{lst:ClientHelloKickstartProducer}), %\footnotemark\ 
+which is instantiated as static constant \code{ClientHello.kickstart\-Producer}. That constant is used by method 
+\code{SSLHandshake.kickstart}. 
+\begin{comment}
+Class \code{ClientHello} is reliant on classes 
+\code{SSLExtensions} %(Listings~\ref{lst:SSLExtensions} \& \ref{lst:SSLExtensionsB}) 
+and \code{SSLExtension} (Appendix~\ref{sec:extensions}) 
+for extensions.
+\end{comment}
+\end{tcolorbox}
+
+\begin{comment}
+\footnotetext{Class \code{ClientHello.ClientHelloKickstartProducer} implements
+  interface \code{SSLProducer}, which defines a single method --
+    namely, \code{byte[] produce(ConnectionContext context) throws IOException}
+  -- common to \ClientHello\ messages originating from the client, %\HelloRequest\ and 
+  \NewSessionTicket\ messages originating from the server, and 
+  \KeyUpdate\ messages originating from either endpoint. Parameter \code{context} defines the active context and may 
+  be cast to children \code{ClientHandshakeContext} and \code{ServerHandshakeContext}, 
+  as seen in Line~398 of Listing~\ref{lst:ClientHelloKickstartProducer}, for instance.
+  %That context is updated during production of \ClientHello\ %, \HelloRequest,
+  %and \NewSessionTicket\ messages, whereas production of \KeyUpdate\ messages
+  %concludes by returning \textcolor{red}{``the encoded producing'' (reword)}.
+  That context is updated during production of \ClientHello, \KeyUpdate\
+  and \NewSessionTicket\ messages.
+  \textcolor{red}{Are these details worth knowing?}
+}
+\end{comment}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    71-71,%class declaration
+    74-76,79-83,%variable declaration
+    84-88,90-93,100-100,102-102,105-107,%constructor
+    160-162,165-167,185-190,192-192,194-200,%constructor
+    312-316,318-322,326-329,%ClientHello output stream
+    382-383%closing brace
+  },
+  label=lst:ClientHelloMessage,
+  caption={[\code{ClientHello.ClientHelloMessage} defines \ClientHello]
+  Class \code{ClientHello.ClientHelloMessage} defines the six fields 
+  of a \ClientHello\ message (Lines~74--81) and constructors to instantiate them 
+  from parameters (Lines~85--106) or an input buffer (Lines~160--200). The former 
+  constructor does not populate the extensions field (and a call to method \code{SSLExtensions.produce},
+  Listing~\ref{lst:SSLExtensions}, is required), whereas the latter may (Line~195--196).
+  Method \code{send} (Lines~312--316) writes those fields to an output stream, using method 
+  \code{sendCore} (Lines~318--328) to write all fields except the extensions 
+  field, which is written by method \code{SSLExtensions.send} 
+  (Listing~\ref{lst:SSLExtensions}, Lines~293--307). 
+}]{listings/ClientHello.java}
+
+\begin{comment}
+\lstinputlisting[
+  float=tbp,
+  linerange={
+%    281-289,%getEncodedCipherSuites()
+    312-322,326-329,%ClientHello output stream
+    382-383%closing brace
+  },
+  label=lst:ClientHelloMessageB,
+  caption={Class \code{ClientHello.ClientHelloMessage} (continued from 
+  Listing~\ref{lst:ClientHelloMessage}) defines method \code{send} (Lines~312--316) 
+  to write \ClientHello\ message fields to an output stream, using method 
+  \code{sendCore} (Lines~318--327) to write all fields except the extensions 
+  field, which is written by method \code{SSLExtensions}.\code{send} 
+  (Listing~\ref{lst:SSLExtensions}, Lines~293--307).
+}]{listings/ClientHello.java}
+\end{comment}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    50-51,%kickstartProducer
+    387-388,%class declaration
+    396-396,%method declaration
+    398-398,%clientHandshakeContext
+%    404-404,
+    407-407,%sessionId
+    410-410,%cipherSuites
+%%%%%%%
+    415-419,
+%    420-426,
+%    428-433, %chc.reservedServerCerts
+%    435-436,
+%    442-443,
+    445-447, %sessionSuite
+%    455-456,
+%    458-462,
+%    468-469,
+%    513-513,
+ %   522-529,
+%    534-534,
+    542-542,
+    553-555,
+%%%%%%
+%    607-608,
+    615-615,%clientVersion
+%    617-617,
+    618-621,%Construct ClientHelloMessage
+    622-630,%cache clientRandom & clientHelloVersion
+    635-638,%output
+    639-646,%manage clientHandshakeContext
+    653-657%closing braces etc.
+  },
+  label=lst:ClientHelloKickstartProducer,
+  caption={[\code{ClientHello.ClientHelloKickstartProducer} produces \ClientHello]
+  Class \code{ClientHello.ClientHelloKickstartProducer} defines 
+  method \code{produce} which instantiates a \ClientHello\ message 
+  (Lines~619--621), populates the extension field for the active context 
+  (Lines~628--630), writes the \ClientHello\ message to an output 
+  stream (Lines~637--638), and prepares the client's active context for the server's 
+  response (Lines~624--625, 642, \& 645--646).
+  The \ClientHello\ message parameterises \TLSlegacySessionId\ as a zero-length 
+  byte array (Line~407); \ifImplNotes\textcolor{red}{truthify the following (EC)DHE
+  vs. PSK}\fi \TLScipherSuites\ as the list of available cipher suites, for 
+  (EC)DHE-only key exchange (Line~410), or as a list containing the cipher suite 
+  %used by the previous session,
+  associated with the pre-shared key, 
+  for PSK-based key exchange (Line~542); and \TLSlegacyVersion\ as constant 0x0303 (Line~615). 
+  (Prior versions of TLS are supported by the class and constants other than 
+  0x0303 may be assigned to \TLSlegacyVersion. We omit those details for brevity.)
+  The output stream is written-to using method \code{ClientHello.ClientHelloMessage.write}, 
+  defined by parent class \code{SSLHandshake.HandshakeMessage}, which in 
+  turn uses method \code{ClientHello.ClientHelloMessage.send}
+  (Listing~\ref{lst:ClientHelloMessage}).
+}]{listings/ClientHello.java}
+
+
+The primary goal of the handshake protocol is to establish a channel that protects 
+communication using one of the symmetric cipher suites offered by the client
+and a key shared between the endpoints. That key is derived
+from (secret) client and server key shares for 
+%Ephemeral Diffie-Hellman key exchange over finite fields (DHE) or elliptic curves (ECDHE), 
+(EC)DHE key exchange, from a (secret) pre-shared key for PSK-only key exchange, or by a combination of 
+key shares and a pre-shared key for PSK with (EC)DHE key exchange. The 
+desired key exchange mode determines which extensions to include: 
+%
+  For (EC)DHE, extensions \TLSsupportedGroups\ and \TLSkeyShare\ are included;
+%
+  for PSK-only, extensions \TLSpsk\ and \TLSpskModes\ must be included, and
+  extensions \TLSsupportedGroups\ and \TLSkeyShare\ may be included to allow 
+  the server to decline resumption and fall back to a full handshake; and 
+%
+  for PSK with (EC)DHE, all four of the aforementioned extensions are included.
+%
+Those extensions are associated with data:
+
+\begin{description}
+
+
+
+\item \TLSsupportedGroups\ and \TLSkeyShare: A list of offered %\sout{ephemeral}
+  Diffie-Hellman groups for key exchange (\TLSsupportedGroups) 
+  and key shares for some or all of those groups (\TLSkeyShare), in  descending 
+  order of client preference. Groups may be selected over finite fields or
+  elliptic curves.\footnotemark\ A key share for a particular group must 
+  be listed in the same order that the group is listed. However, a key share 
+  for a particular group may be omitted, even when a key share for a less
+  preferred group is present. This situation could arise when a group is 
+  new or lacking support, making key shares for such groups redundant
+  and wasteful. An empty vector of key shares can be used to request 
+  group selection from the server. (Servers respond with \HelloRetryRequest\
+  messages when no key share is offered for the server selected group.)
+
+\ifSpecNotes
+\textcolor{red}{Why include both extensions? They overlap. In particular, \TLSsupportedGroups\
+  is associated with a list of type \texttt{NamedGroup} and \TLSkeyShare\ is associated with
+  list of pairs, where the first element of each pair is also of type \texttt{NamedGroup}
+  (the second element contains the key share and a zero-length key share could be used
+  when a key share isn't offered for the group), hence, the group is repeated.}
+\fi
+
+
+\footnotetext{Supported groups include: 
+  Finite field groups defined in RFC~7919, namely, 
+  %
+    \TLSConstant{ffdhe2048} (0x0100), 
+    \TLSConstant{ffdhe3072} (0x0101), 
+    \TLSConstant{ffdhe4096} (0x0102),
+    \TLSConstant{ffdhe6144} (0x0103), and
+    \TLSConstant{ffdhe8192} (0x0104), and
+  elliptic curve groups defined in either FIPS 186-4 
+  or RFC~7748, namely, 
+  %
+    \TLSConstant{secp256r1} (0x0017), 
+    \TLSConstant{secp384r1} (0x0018), 
+    \TLSConstant{secp521r1} (0x0019),
+    \TLSConstant{x25519} (0x001D), and
+    \TLSConstant{x448} (0x001E).
+  Supporting group \TLSConstant{secp256r1} is mandatory (unless an implementation explicitly 
+  opts out), and group \TLSConstant{x25519} should also be supported.
+}
+
+
+\item \TLSpsk\ and \TLSpskModes: A list of offered pre-shared
+  key identifiers (\TLSpsk) and a key exchange mode for each 
+  (\TLSpskModes). (Further details on extension \TLSpsk\
+  appear in Section~\ref{sec:NST}, after \NewSessionTicket\ messages -- which 
+  establish pre-shared keys for subsequent connections -- are introduced.)
+  At least one offered cipher suite should define a hash function associated 
+  with at least one of the identifiers. 
+  \ifSpecNotes
+  \textcolor{red}{A stronger requirement seems desirable here, e.g., a hash 
+  function associated with each identifier, but that's not what's required by 
+  the spec (p28)}
+  \fi
+  Key exchange modes include PSK-only (\TLSPskKe) and PSK with (EC)DHE (\TLSPskDheKe).
+  Extension \TLSpsk\ must be the last extension in the \ClientHello\ message.
+  (Other extensions may appear in any order.)
+
+
+\end{description}
+
+\noindent
+A further goal of the handshake protocol is unilateral authentication
+of the server, which for (EC)DHE key exchange mode is achieved by inclusion of extensions 
+\TLSsignatureAlgorithms\ and \TLSsignatureAlgorithmsCert\ (for PSK-only and
+PSK with (EC)DHE, authentication is derived from the \Finished\ message), 
+and associated data:
+
+\begin{description}
+
+\begin{sloppypar}
+\item \TLSsignatureAlgorithms\ and \TLSsignatureAlgorithmsCert:
+  A list of accepted signature algorithms in descending order of client 
+  preference for \CertificateVerify\ messages (\TLSsignatureAlgorithms)
+  and \Certificate\ messages (\TLSsignatureAlgorithmsCert).\footnotemark\
+  (Extension \TLSsignatureAlgorithmsCert\ may be omitted in favour of extension 
+  \TLSsignatureAlgorithms, when accepted algorithms for \Certificate\ and 
+  \CertificateVerify\ messages coincide. In such cases,
+  algorithms listed by extension \TLSsignatureAlgorithms\ apply to certificates too.)
+\end{sloppypar}
+
+\footnotetext{Supported signature algorithms include: 
+  RSASSA-PKCS1-v1_5 (RFC8017) or RSASSA-PSS (RFC8017) with 
+  a corresponding hash function, namely, SHA256, SHA384, or 
+  SHA512;
+  ECDSA (American National Standards Institute, 2005) with 
+  a corresponding curve \& hash function, namely, 
+  secp256r1 \& SHA256, secp384r1 \& SHA384, or 
+  secp521r1 \& SHA512; and
+  EdDSA (RFC8032). (RSASSA-PKCS1-v1_5 is only supported for 
+  \Certificate\ messages.) 
+  Supporting RSA-based signatures with SHA256 (for certificates)
+  and ECDSA signatures with secp256r1 \& SHA256 is mandatory (unless an implementation 
+  explicitly opts out). (RSASSA-PSS must also be supported for \CertificateVerify\ messages.)
+}
+
+
+%\item certificate\_authorities (47)
+
+\end{description}
+
+\noindent
+Additional extensions exist and may be included in \ClientHello\ messages.
+(Appendix~\ref{sec:extensions} lists all extensions.)
+
+A \ClientHello\ message is consumed by the server: The 
+server first checks that the message is a TLS 1.3 \ClientHello\ 
+message, which is achieved by checking that extension \TLSsupportedVersions\
+is present and that constant 0x0304 is the first listed preference.
+(The \ClientHello\ message format is backward compatible with 
+previous versions of TLS, hence, the message might need to be processed
+by a prior version of TLS. Those details are beyond the scope of this 
+manuscript.) The server may 
+also check that field \TLSlegacyVersion\
+is set to constant 0x0303 and field \TLSlegacySessionId\ is set to a zero-length vector.
+Moreover, the server checks field \TLSlegacyCompressionModes\ is set to constant 0x00
+and aborts with an \TLSillegalParameter\ alert if the check fails.\footnote{%
+  RFC 8446 does not explicitly require servers to check fields 
+  \TLSlegacyVersion\ and \TLSlegacySessionId, it merely requires clients to
+  set those fields correctly. Accordingly, we assume servers \emph{may} 
+  perform these checks, rather than mandating them. By comparison,
+  RFC 8446 explicitly requires field \TLSlegacyCompressionModes\ to be
+  correctly set.
+}
+Next,\label{comp:CH:cons:cipher} the server selects an acceptable cipher suite from field \TLScipherSuites, 
+disregarding suites that are not recognised, unsupported, or otherwise unacceptable, 
+and aborting with a \TLShandshakeFailure\ or an \TLSinsufficientSecurity\ alert if no 
+mutually acceptable cipher suite exists. Finally, the server processes any remaining
+extensions:
+
+
+\begin{description}
+
+\item \TLSsupportedGroups\ and \TLSkeyShare: The server selects an acceptable group 
+  from the list; aborting with a \TLSmissingExtension\ alert if extension \TLSsupportedGroups\ 
+  is present and extension \TLSkeyShare\ is absent, or vice versa; aborting with a 
+  \TLShandshakeFailure\ or an \TLSinsufficientSecurity\ alert if no mutually acceptable 
+  group exists; and \label{comp:CH:cons:HRR} responding with a \HelloRetryRequest\ 
+  message if extension \TLSkeyShare\ does not offer a key share for the selected group.
+
+\item \TLSpsk\ and \TLSpskModes: The server selects an acceptable key identifier
+  from the list (\ifSpecNotes\textcolor{red}{the spec requires that identifier to be compatible 
+  with the server-selected cipher suite. That's rather vague. I think compatibility varies 
+  between out-of-band and NST provisioned keys. I think the following captures the meaning 
+  of compatibility:}\fi{}that identifier must be associated with a hash function, 
+  AEAD algorithm, or both, which are defined by the server-selected cipher suite), 
+  disregarding unknown identifiers, aborting with an \TLSillegalParameter\ 
+  alert if extension \TLSpsk\ is not the last extension in the \ClientHello\ message,
+  and aborting if extension \TLSpsk\ is present without \TLSpskModes.
+  The server also selects a key exchange mode.\label{comp:CH:cons:psk}
+  If no mutually acceptable key identifier exists and extensions \TLSsupportedGroups\ 
+  and \TLSkeyShare\ are present, then the server should perform a non-PSK handshake.
+  
+
+\item \TLSsignatureAlgorithms\ and \TLSsignatureAlgorithmsCert:
+  The server selects acceptable signature algorithms for \CertificateVerify\ 
+  and \Certificate\ messages.
+
+\end{description}
+
+\noindent
+Any unrecognised extensions are ignored and the server aborts with a 
+\TLSmissingExtension\ alert if extension \TLSpsk\ is absent as-is
+either extension \TLSsupportedGroups, \TLSsignatureAlgorithms, or 
+both. (Alerts are formally defined by RFC 8446, as 
+discussed in Appendix~\ref{sec:alerts}.)
+
+\begin{tcolorbox}
+Consumption is implemented by class 
+\code{ClientHello.ClientHelloConsumer} (Listing~\ref{lst:ClientHelloConsumer}).
+That class checks the presence of extension \TLSsupportedVersions, to determine
+whether the message is a TLS 1.3 \ClientHello\ message, and the remainder of the 
+message is processed by class \code{ClientHello.T13ClientHelloConsumer} 
+(Listings~\ref{lst:T13ClientHelloConsumer} \&~\ref{lst:T13ClientHelloConsumerC}), 
+if it is a TLS 1.3 message. %\footnotemark\
+\begin{comment}
+which is reliant on classes \code{SSLExtensions} 
+%(Listings~\ref{lst:SSLExtensions} \&~\ref{lst:SSLExtensionsB}) 
+and \code{SSLExtension} 
+%(Listing~\ref{lst:SSLExtension}).\footnotemark\
+(Appendix~\ref{sec:extensions}).
+\end{comment}
+%The latter is in turn reliant on a variable \code{onLoadConsumer} of (interface) type 
+%\code{SSLExtension.ExtensionConsumer} which is instantiated by a constant in 
+%the form \code{ThisNameExtension.chOnLoadConsumer}, where \code{ThisName}
+%corresponds to extension \TLSField{this\_name}. 
+Consumption of the \ClientHello\ message may result in the server aborting or 
+responding with either a \ServerHello\ or \HelloRetryRequest\ message.
+\end{tcolorbox}
+
+\begin{comment}
+\footnotetext{Class \code{ClientHello.ClientHelloConsumer} implements
+  interface \code{SSLConsumer}, which defines a single method, namely, 
+  \code{void consume(ConnectionContext context, ByteBuffer message) throws IOException}.
+  Similarly, class \code{ClientHello.T13ClientHelloConsumer} implements
+  interface \code{HandshakeConsumer}, which defines method
+  \code{void consume(ConnectionContext context, HandshakeMessage message) throws IOException}.
+  Parameter \code{context} defines the active context in both interfaces 
+  and may be cast to children \code{ClientHandshakeContext} and \code{ServerHandshakeContext}, 
+  as seen in Line~770 of Listing~\ref{lst:ClientHelloConsumer}, for instance.
+  \textcolor{red}{Are these details worth knowing?}
+}
+\end{comment}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    52-53,%handshakeConsumer
+    760-760,%ClientHelloConsumer class declaration
+    767-768,%consume method delaration
+    770-770,
+    781-783,
+    785-786,
+    791-793,
+    795-796,
+%    800-816,
+    800-808,
+    %810-811,
+    809-815,
+    816-816,
+    %831-831,
+    830-834,
+    836-836,
+%    840-842,%negotiateProtocol according to ClientHello.client_version
+%    844-846,
+%    852-854,
+%    857-859,
+%    868-868,
+    873-875,
+    877-880,
+    884-884,
+    888-892,
+    902-903
+  },
+  label=lst:ClientHelloConsumer,
+  caption={[\code{ClientHello.ClientHelloConsumer} consumes generic \ClientHello]
+  Class \code{ClientHello.ClientHelloConsumer} defines method \code{consume} to 
+  instantiate a (generic) \ClientHello\ message from an input buffer (Lines~785--786); update the 
+  server's active context to include the client's offered versions (Lines~800--803), 
+  indirectly using method 
+  \code{SupportedVersionsExtension.CHSupportedVersionsConsumer.consume}, which calls
+  \code{context.handshakeExtensions.put(CH\_SUPPORTED\_VERSIONS, spec)}, where 
+  parameter \code{spec} is a byte array encoding of extension \TLSsupportedVersions;
+  %(variable \code{context} is named \code{shc} in the method);
+  select the first server preferred version that the client offered (Lines~810--811 \& 880--892); 
+  and update the active context to include that selected version preference as the negotiated 
+  protocol (Line~816). Further processing is deferred (Line 831) to class 
+  \code{ClientHello.T13ClientHelloConsumer} (Listing~\ref{lst:T13ClientHelloConsumer}).
+  \ifPresentationNotes\textcolor{red}{Maybe mention consumption of TLS 1.2 \ClientHello\ messages}\fi
+}]{listings/ClientHello.java}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    59-60,
+    1075-1076,
+    1083-1084,
+    1086-1087,
+    1097-1119,
+    1120-1127
+  },
+  label=lst:T13ClientHelloConsumer,
+  caption={[\code{ClientHello.T13ClientHelloConsumer} consumes \ClientHello]
+  Class \code{ClientHello.T13ClientHelloConsumer} defines method \code{consume}
+  to process incoming (TLS 1.3) \ClientHello\ messages (further to processing 
+  shown in Listing~\ref{lst:ClientHelloConsumer}). The method updates the server's 
+  active context to include
+  any pre-shared key identifiers and key exchange modes offered by the client (Lines~1101--1105),
+  indirectly using the \code{consume} method of classes 
+  \code{PskKeyExchangeModesExtension.PskKeyExchangeModesConsumer} 
+  and \code{PreSharedKeyExtension.CHPreSharedKeyConsumer}; updates the active 
+  context to include any further (enabled) extensions 
+  (Lines~1113--1119), excluding those that have already been added to the active context,
+  namely, extensions \TLSsupportedVersions, \TLSpsk, and \TLSpskModes; and proceeds by 
+  producing either a \HelloRetryRequest\ message if extension \TLSkeyShare\ does not
+  offer a key share for the server selected group (method  
+  \code{KeyShareExtension.CHKeyShareConsumer.consume} may add a producer 
+  for \HelloRetryRequest\ messages which ensures \code{!shc.handshakeProducers.isEmpty()} 
+  holds) or a \ServerHello\ message otherwise (Lines~1121--1126).
+  \ifImplNotes
+  \textcolor{blue}{Contrary to comments (Lines~1107--1109) extension key\_share doesn't 
+  appear to be ignored in Lines 1113--1119, extensions \TLSpskModes, \TLSpsk, and 
+  \TLSsupportedVersions\ are. (If it were ignored, then \HelloRetryRequest\ messages 
+  would never be produced.) }
+  \fi
+}]{listings/ClientHello.java}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    1129-1133,
+    1135-1135,
+    1147-1147,
+    1149-1150,
+    1154-1154,
+    1159-1180,
+    1185-1193
+  },
+  label=lst:T13ClientHelloConsumerC,
+  caption={[\code{ClientHello.T13ClientHelloConsumer} consumes \ClientHello\ (cont.)]
+  Class \code{ClientHello.T13ClientHelloConsumer} (continued from 
+  Listing~\ref{lst:T13ClientHelloConsumer}) defines methods \code{goHelloRetryRequest} 
+  to produce a \HelloRetryRequest\ message and \code{goServerHello} 
+  to produce a \ServerHello\ message. The latter method prepares the server's active 
+  context for the client's response (Lines~1154 \& 1159--1162); updates the active context to 
+  include a producer for \ServerHello\ messages (Lines~1168--1169); constructs
+  an array of producers that servers might use during the handshake protocol, 
+  namely, producers for messages \ServerHello, \EncryptedExtensions, 
+  \CertificateRequest, \Certificate, \CertificateVerify, and \Finished,
+  in the order that they might be used (Lines~1171--1180); and uses those producers 
+  to produce messages when the active context includes the producer
+  (Lines~1185--1191). Since a \ServerHello\ message producer is 
+  included, a \ServerHello\ message is always produced, using 
+  method \code{ServerHello.T13ServerHelloProducer.produce} 
+  (Listing~\ref{lst:T13ServerHelloProducer}). That method 
+  adds producers for \EncryptedExtensions\ and \Finished\ messages
+  (Listing~\ref{lst:T13ServerHelloProducer}, Lines~560--563), 
+  since those messages must be sent. Other producers 
+  may also be added.
+}]{listings/ClientHello.java}
+
+\begin{comment}
+
+%Pushed to Listing~\ref{lst:SSLExtensions}
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    132-134,
+    163-164,
+    169-170    
+  },
+  label=lst:SSLExtensionsB,
+  caption={Class \code{SSLExtensions}}?
+}]{listings/SSLExtensions.java}
+
+%Pushed to Listing~\ref{lst:SSLExtension}
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    539-547
+  },
+  label=lst:SSLExtensionB,
+  caption={Class \code{SSLExtension} 
+}]{listings/SSLExtension.java}
+
+\end{comment}
+
+
+
+

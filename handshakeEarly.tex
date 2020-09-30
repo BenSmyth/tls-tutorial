@@ -1,0 +1,121 @@
+\subsection{Early data}\label{sec:handshakeEarlyData}
+
+For PSK-based key exchange, clients may exceptionally start sending encrypted application data 
+immediately after \ClientHello\ messages (before receiving a \ServerHello\ message),\footnote{%
+  RFC 8446 only permits clients to send early data when the pre-shared key is associated with 
+  data permitting them to do so. For resumption PSKs, permission is granted by inclusion of 
+  extension \TLSearlyData\ in \NewSessionTicket\ messages (\S\ref{sec:NST}).
+}
+enabling 
+a zero round-trip time (0-RTT), at the cost of forward secrecy 
+(since application data is solely encrypted by the 
+pre-shared key, %rather than a combination of that key and Diffie-Hellman
+%  key shares, hence, forward secret cannot be obtained
+which does not afford forward secrecy, as per PSK-only key exchange) and replay protection
+(since such protection is derived from the server's nonce, which is constructed
+after encrypted application data is sent).\footnote{
+  RFC 8446 discusses anti-replay defences and notes that 
+  single-use PSKs enjoy forward secrecy.
+}
+Such early data requires the
+\ClientHello\ message to include extensions \TLSearlyData\ and \TLSpsk,
+and 
+application data must be encrypted using 
+%the pre-shared key identified by the first entry in the client's list of pre-shared key identifier .
+the client's first identified pre-shared key. (Extension \TLSearlyData\
+is not associated with data, encrypted application data is sent separately.)
+
+To consume early data, a server must select the client's first pre-shared key
+identifier and an offered cipher suite associated with that identifier. The
+server must check the identifier is associated with the server-selected 
+protocol version and (if extension \TLSapplicationLayerProtocolNegotiation\ is present) 
+application protocol. (These checks are a superset of those for PSK-based key 
+exchange without early data.) Additionally, for resumption PSKs, the server 
+must check that the PSK is not beyond its lifetime. 
+If checks succeed (and the server is willing to consume early data), 
+then the server will include a corresponding \TLSearlyData\ extension
+in their \EncryptedExtensions\ message.
+(When consuming that extension, the client must check that the server selected
+the client's first pre-shared key identifier, aborting with an \TLSillegalParameter\
+alert, if the check fails.)
+Otherwise, no such extension will 
+be sent and no early data will be consumed (extension \TLSearlyData\ is
+ignored), and the server will proceed in one of the following two ways (which 
+must also be followed by servers not supporting early data): Respond 
+with a \ServerHello\ message, excluding extension \TLSearlyData,
+or respond with a \HelloRetryRequest\ message, forcing the client to send 
+a second \ClientHello\ message without extension \TLSearlyData.
+In both cases, the server must skip past early data. For the former, 
+given that all messages will be encrypted, the server must decrypt 
+messages with the handshake traffic key, discard messages when 
+decryption fails, and treat the first successfully decrypted
+message as the client's next handshake message, thereafter 
+proceeding as if no early data were sent. 
+For the latter, the second \ClientHello\ message will be unencrypted
+and the server can discard all encrypted messages (identified by
+record type \TLSapplicationData\ (0x23), rather than type \TLShandshake\
+(0x22), as introduced in Section~\ref{sec:record}), before proceeding as 
+if no early data were sent when the second \ClientHello\ message
+is identified.
+(When the pre-shared key is associated with a maximum amount of early 
+data, the server should abort with an \TLSunexpectedMessage\ alert if 
+the maximum is exceeded when skipping past early data.)
+
+
+
+\begin{tcolorbox}
+Early data is not supported by JDK~11 (\url{https://openjdk.java.net/jeps/332}),
+nor subsequent versions: When extension \TLSearlyData\ is included in message
+\ClientHello, that extension will be processed (Line~1119, Listing~\ref{lst:T13ClientHelloConsumer})
+and runtime exception \code{UnsupportedOperationException} will be thrown 
+(omitted from Listing~\ref{lst:SSLExtension}).
+\ifImplNotes
+\textcolor{red}{
+Since JDK throws a runtime exception rather than skipping early data, 
+is JDK non-compliant with the spec, or can runtime exceptions be used
+to avoid non-compliance?
+}
+\fi
+\end{tcolorbox}
+
+
+\subsubsection*{Data associated with pre-shared keys}
+
+An external PSK (established independently of TLS) must minimally be associated 
+with a hash function and an identity. (The hash function may default to SHA-256, 
+if no function is explicitly associated.)
+Such a PSK grants freedom over AEAD algorithms, whilst 
+fixing the hash function. By comparison, a resumption PSK (established by 
+\NewSessionTicket\ messages) is associated with values negotiated in the 
+connection that provisioned the PSK, which fixes a cipher suite, hence, 
+an AEAD algorithm and a hash function.\footnote{%
+  Although resumption PSKs are associated with cipher suites, they need 
+  not be used with defined AEAD algorithms, except for compatibility 
+  with early data.}
+(It follows that a connection established using a resumption PSK will 
+inherit security from the connection in which the resumption PSK was 
+established.)
+Resumption PSKs are compatible with 
+early data by default (assuming suitable provisioning with extension 
+\TLSapplicationLayerProtocolNegotiation, if relevant), whereas (minimally 
+associated) external PSKs are not. They must be associated with a cipher suite 
+(rather than just a hash function), a protocol version, and (if relevant)  an 
+application protocol, for compatibility with early data.
+
+
+\subsubsection{\EndOfEarlyData}
+
+A client can transmit early data until they receive a server's \Finished\
+message. After which, the client transmits an \EndOfEarlyData\ message
+(encrypted using a key derived from secret \TLSclientEarlyTrafficSecret), 
+if the server's \EncryptedExtensions\ message included extension
+\TLSearlyData. Otherwise, early data has not and will not be consumed 
+by the server, and no \EndOfEarlyData\ message is sent. The \EndOfEarlyData\ 
+message indicates that all early data has been transmitted and subsequent
+handshake messages will be encrypted with the client's handshake-traffic key.
+(Servers must not send \EndOfEarlyData\ messages and clients receiving 
+such messages must abort with an \TLSunexpectedMessage\ alert.)
+
+
+
+

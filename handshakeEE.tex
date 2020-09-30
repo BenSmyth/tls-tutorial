@@ -1,0 +1,51 @@
+\subsection{Server parameters: \EncryptedExtensions}\label{sec:EE}
+
+%%Endpoints may include extensions beyond those already discussed to request extended
+%%functionality. A client includes such extensions in \ClientHello\ messages, whereas 
+%%a server includes such extensions in an \EncryptedExtensions\ message (which must 
+%%follow immediately after a \ServerHello\ message)\sout{, typically in response to extended 
+%%functionality requested by the client, but also to indicate additional functionality 
+%%that does not require a response from the client}\textcolor{red}{not true for 
+%%\EncryptedExtensions\ messages: "Implementations MUST NOT send extension responses 
+%%if the remote endpoint did not send the corresponding extension requests, with the
+%%exception of the "cookie" extension in the HelloRetryRequest." It follows that
+%%\EncryptedExtensions\ messages only contain responses to requests in \ClientHello\ 
+%%messages.
+
+To request extended functionality, a client may include extensions -- beyond those 
+already discussed -- in \ClientHello\ messages. Such functionality 
+is not required to establish handshake-traffic keys, hence, those extensions 
+can be encrypted, and a server responds to client requests by including extensions 
+in \EncryptedExtensions\ and \Certificate\ messages.
+(Appendix~\ref{sec:extensions} lists all extensions and formally states which extensions 
+can be listed in the \TLSextensions\ field of \EncryptedExtensions\ and \Certificate\ 
+messages, and of other handshake protocol messages.) The former message lists extensions 
+which are not associated with individual certificates, and the latter lists those that are. 
+
+An \EncryptedExtensions\ message (which must follow immediately after a \ServerHello\ 
+message) comprises of the following field:
+
+\begin{description}
+
+\item \TLSextensions: A list of extensions responding to requests for extended 
+  functionalities, i.e., functionalities not required to establish  handshake-traffic 
+  keys (hence, can be encrypted with such keys), excluding extensions 
+  associated with individual certificates.
+
+\end{description}
+
+\noindent
+Each \EncryptedExtensions\ message is encrypted using the handshake-traffic key generated 
+from traffic secret \TLSserverHandshakeTrafficSecret, as are subsequent 
+handshake messages sent by the server.
+
+\begin{tcolorbox}
+\EncryptedExtensions\ messages are implemented, produced, and consumed by 
+inner-classes of class \code{EncryptedExtensions}, namely, inner-classes \code{EncryptedExtensionsMessage},
+\code{EncryptedExtensionsProducer}, and \code{EncryptedExtensionsConsumer}, respectively.
+\ifPresentationNotes
+\textcolor{red}{Perhaps explain how \code{writeCipher} encrypts traffic.}
+\fi
+\end{tcolorbox}
+
+

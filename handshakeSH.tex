@@ -1,0 +1,332 @@
+\subsection{\ServerHello}\label{sec:handshakeSH}\label{sec:SH}
+
+A server that is able to successfully consume a \ClientHello\ message responds
+with a \ServerHello\ message, %(specified in Appendix~\ref{sec:specification}), 
+comprising fields \TLSlegacyVersion, \TLSrandom, and \TLSextensions\ as per the 
+\ClientHello\ message and the following fields:
+
+\begin{description}
+
+\item \TLSlegacySessionIdEcho: The contents of \ClientHello.\TLSlegacySessionId.
+
+\item \TLScipherSuite:  The cipher suite selected by the server from \ClientHello.\TLScipherSuites.
+
+\item \TLSlegacyCompressionMode: Constant 0x00.
+
+\end{description}
+
+\noindent
+Legacy fields are included for backwards compatibility.
+
+\begin{tcolorbox}
+The \ServerHello\ message is implemented by class \code{ServerHello.ServerHelloMessage}
+(Listings~\ref{lst:ServerHelloMessage} \&~\ref{lst:ServerHelloMessageB}). Instances 
+of that class are produced by class \code{Server\-Hello.T13\-Server\-Hello\-Producer}
+(Listings~\ref{lst:T13ServerHelloProducer} \& \ref{lst:T13ServerHelloProducerB}), %\footnotemark\
+which is instantiated as static constant \code{Server\-Hello.t13\-Handshake\-Producer}. That 
+constant is used indirectly -- via class \code{SSL\-Handshake.SERVER_HELLO} -- to produce
+\ServerHello\ messages in class \code{Client\-Hello.T13\-Client\-Hello\-Consumer}
+(Listing~\ref{lst:T13ClientHelloConsumerC}).
+\end{tcolorbox}
+
+\begin{comment}
+\footnotetext{Class \code{ServerHello.T13ServerHelloProducer} implements
+  interface \code{HandshakeProducer}, which defines a single method, namely, 
+  \code{byte[] produce(ConnectionContext context, HandshakeMessage message) throws IOException}, 
+  where parameter \code{context} defines the active context in both interfaces 
+  and may be cast to children \code{ClientHandshakeContext} and \code{ServerHandshakeContext}.
+  That context may be updated during production of messages or production may conclude
+  by returning \textcolor{red}{``the encoded producing'' (reword)}.
+  \textcolor{red}{Are these details worth knowing?}
+}
+\end{comment}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    85-122
+  },
+  label=lst:ServerHelloMessage,
+  caption={[\code{ServerHello.ServerHelloMessage} defines \ServerHello/\HelloRetryRequest]
+  Class \code{ServerHello.ServerHelloMessage} defines the six fields 
+  of a \ServerHello\ message (Lines~86--91), two additional fields 
+  for production and consumption of a \HelloRetryRequest\ message (Lines~96 \&~100), 
+  and constructors to instantiate those fields from parameters (Lines~102--122) 
+  or an input buffer (Listing~\ref{lst:ServerHelloMessageB}). The former constructor does 
+  not populate the extensions field,
+  %\sout{ (and a call to method \code{SSLExtensions.produce}, Listing~\ref{lst:SSLExtensions}, is required)}
+  whereas the latter may (Listing~\ref{lst:ServerHelloMessageB}, Line~173--174).
+}]{listings/ServerHello.java}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    124-126,
+    128-129,
+    131-133,
+    141-142,
+    149-155,
+    157-157,
+    163-170,
+    172-177,
+    179-183,
+    205-216,
+    246-246
+  },
+  label=lst:ServerHelloMessageB,
+  caption={[\code{ServerHello.ServerHelloMessage} defines \ServerHello/\HelloRetryRequest\ 
+    (cont.)]
+  Class \code{ServerHello.ServerHelloMessage} (continued from 
+  Listing~\ref{lst:ServerHelloMessage}) defines a constructor 
+  which instantiates \ServerHello\ or \HelloRetryRequest\ messages
+  from an input buffer (Lines~124-183), checking that the server-selected cipher suite 
+  (Lines~149--150) is amongst those offered by the client (Lines~151--155), and method 
+  \code{send} to write %\ServerHello\ or \HelloRetryRequest\ fields 
+  such messages 
+  to an output stream, using  
+  method \code{SSLExtensions.send} to write the extensions field
+  (Listing~\ref{lst:SSLExtensions}, Lines~293--307).
+}]{listings/ServerHello.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    59-60,
+    484-485,
+    492-493,
+    495-501,
+%    495-496,
+%    501-501,
+    513-514,
+    516-516,
+    518-525,
+%    519-522,
+%    525-525,
+    531-532,
+    535-536,
+    538-542,
+%    539-542,
+    546-546,
+    549-551,
+%    550-551,
+    557-563
+  },
+  label=lst:T13ServerHelloProducer,
+  caption={[\code{ServerHello.T13ServerHelloProducer} produces \ServerHello]
+  Class \code{ServerHello.T13ServerHelloProducer} defines method 
+  \code{produce} to write a \ServerHello\ message to an output stream. 
+  Prior to instantiating such a message, the server's active context is updated to 
+  include extensions -- in particular,
+  \TLSsignatureAlgorithms, \TLSsignatureAlgorithmsCert, and \TLSpsk\ -- that 
+  may impact the \ServerHello\ message (Lines~519--522 or~539--542). Moreover, 
+  the active context is updated to include a producer for \EncryptedExtensions\ 
+  and \Finished\ messages (Lines~560--563). Code for writing the \ServerHello\ 
+  message appears in Listing~\ref{lst:T13ServerHelloProducerB}.
+}]{listings/ServerHello.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    565-578,
+    582-585,
+    677-692,
+    694-694,
+    697-701,
+    713-714,
+    725-727
+  },
+  label=lst:T13ServerHelloProducerB,
+  caption={[\code{ServerHello.T13ServerHelloProducer} produces \ServerHello\
+    (cont.)]
+  Class \code{ServerHello.T13ServerHelloProducer} defines method 
+  \code{produce} (continued from Listing~\ref{lst:T13ServerHelloProducer}) 
+  which instantiates a \ServerHello\ message~(Lines 566--571), populates 
+  the extension field for the server's active context (Lines~575--578), and writes 
+  the \ServerHello\ message to an output stream (Lines~584--585). The 
+  \ServerHello\ message parameterises \TLSlegacyVersion\ as constant 0x0303 
+  (Line~567), \TLSlegacySessionIdEcho\ as \ClientHello.\TLScipherSuites\ 
+  (Line~568), and \TLScipherSuite\ as the negotiated cipher suite (Line~569), 
+  which is the server selected cipher suite for (EC)DHE-only key exchange 
+  (Lines~525 \&~531, Listing~\ref{lst:T13ServerHelloProducer}), selected using 
+  method \code{chooseCipherSuite}, or the cipher suite %used by the previous session 
+  associated with the pre-shared key for PSK-based key exchange (Line~546, Listing~\ref{lst:T13ServerHelloProducer}). 
+  \ifImplNotes\textcolor{red}{Truthify regarding DHE/PSK/both}\fi
+  The output stream is written to using method \code{ServerHello.ServerHelloMessage.write}, 
+  defined by parent class \code{SSLHandshake.HandshakeMessage}, which in 
+  turn uses method \code{ServerHello.ServerHelloMessage.send} (Listing~\ref{lst:ServerHelloMessageB}). (After outputting the message, the server 
+  updates the active context to include new keying material in preparation 
+  for the server's response, Section~\ref{sec:hkdf}.)
+  Method \code{chooseCipherSuite} instantiates lists of 
+  preferred and proposed cipher suites as the list of available 
+  cipher suites and the list of offered cipher suites, respectively,
+  or vice-versa, depending on the active context (Lines~684--692),
+  and returns the first preferred cipher suite that is amongst those 
+  proposed (Lines~694--714) or \code{null} if no such suite exists
+  (Line~725).
+}]{listings/ServerHello.java}
+
+
+In addition to mandatory extension \TLSsupportedVersions, message \ServerHello\ 
+must include additional extensions depending on the key exchange mode: For ECDHE/DHE,
+\label{comp:SH:prof:keyShare} extension
+\TLSkeyShare\ is included in association with the server's key share, which must 
+be in the group selected by the server from \ClientHello.\TLSsupportedGroups; 
+for PSK-only, extension \TLSpsk\ is included in association with 
+the pre-shared key identifier selected by the server from \ClientHello.\TLSpsk; 
+and for PSK with (EC)DHE, both of those extensions are included.
+Additional extensions are sent separately 
+in the \EncryptedExtensions\ message.
+
+\begin{sloppypar}
+A \ServerHello\ message is consumed by the client: The client first checks that
+the message is a TLS 1.3 \ServerHello\ message, which is achieved by checking 
+that extension \TLSsupportedVersions\ is present and that constant 0x0304 is
+the first listed preference. 
+\ifSpecNotes
+\begin{color}{red}
+The specification seems to contain conflicting requirements:\marginpar{conflict reported 1 May 2020}
+\begin{quote}
+  Clients MUST check for this [supported_versions] extension \emph{prior to
+  processing} the rest of the ServerHello (although they will have to           
+  parse the ServerHello in order to read the extension)
+\end{quote}
+and 
+\begin{quote}
+  Upon receiving a message with type server_hello, implementations MUST      
+  \emph{first examine} the Random value
+\end{quote}
+which conflict on the emphasised text. Presumably, these must be the 
+first two checks, but their ordering is unclear.
+\end{color}
+\fi
+Next, the client checks whether the server's nonce 
+(\TLSrandom) is a special value (defined by constant 
+\code{RandomCookie.hrrRandomBytes}) indicating that the \ServerHello\ message
+is a \HelloRetryRequest\ message and should be processed as such 
+(\S\ref{sec:HelloRetryRequest}). \ifPresentationNotes\marginpar{Maybe drop inline reference to \code{RandomCookie}
+  if including OpenSSL, or include a reference to OpenSSL's handling.}\fi
+The client also checks whether \label{comp:SH:cons:version} the server selected protocol version
+(\TLSsupportedVersions) is amongst those offered (\ClientHello.\TLSsupportedVersions)
+and is at least version 1.3, whether the server selected cipher suite
+(\TLScipherSuite) is amongst those offered (\ClientHello.\TLScipherSuites),
+and whether field \TLSlegacySessionIdEcho\ matches 
+\ClientHello.\TLSlegacySessionId, aborting with an \TLSillegalParameter\
+alert if any check fails. Finally, the client processes any remaining 
+extensions:
+\end{sloppypar}
+
+
+\begin{description}
+\ifSpecNotes
+\item   \textcolor{red}{\TLSkeyShare: 
+    I expected the client to check whether the server's key share is 
+    in a group [selected by the server] from \ClientHello.\TLSsupportedGroups, 
+    but that doesn't seem to be required.}
+\fi
+
+\item \TLSpsk: The client checks whether the server-selected key 
+  identifier is amongst those offered by the client, 
+  the server-selected cipher suite defines a hash function associated 
+  with that identifier, and 
+  extension \TLSkeyShare\ is present if the offered key exchange 
+  mode for that identifier is PSK with (EC)DHE, aborting with an 
+  \TLSillegalParameter\ alert if either check fails.
+\end{description}
+
+%\noindent 
+%\textcolor{red}{...XXX...}
+
+\begin{tcolorbox}
+Consumption is implemented by class \code{ServerHello.ServerHelloConsumer}
+(Listing~\ref{lst:ServerHelloConsumer}). That class checks the presence of extension 
+\TLSsupportedVersions, to determine whether the message is a TLS~1.3 \ServerHello\ message, and 
+the remainder of the message is processed by \code{ServerHello.T13ServerHelloConsumer}
+(Listing~\ref{lst:T13ServerHelloConsumer}), if it is a TLS 1.3 message. 
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    55-56,%handshakeConsumer
+    839-840,
+    847-848,
+    850-850,
+    864-864,
+    869-874,
+    928-929,
+    933-936,
+%    937-960, svs != null for TLS 1.3
+    937-941,
+    943-944,
+    948-954,
+    956-956,
+%    957-960,
+    984-984,
+    993-994
+  },
+  label=lst:ServerHelloConsumer,
+  caption={[\code{ServerHello.ServerHelloConsumer} consumes generic 
+            \ServerHello/\HelloRetryRequest]
+  Class \code{ServerHello.ServerHelloConsumer} defines method \code{consume} to 
+  instantiate a (generic) \ServerHello\ message from an input buffer (Line~864) and processes the message
+  as a \HelloRetryRequest\ (Line~870) or a \ServerHello\ message (Line~872). The latter
+  updates the client's active context to include the server's selected version (Lines~933--936), 
+  using method \code{SupportedVersionsExtension.SHSupportedVersionsConsumer.consume}, which 
+  calls \code{chc.handshakeExtensions.put(SH\_SUPPORTED\_VERSIONS, spec)},
+  and checks whether that version was offered by the client (Lines~949), aborting if it
+  was not (Lines~950--953) and, otherwise, updating the active context to include that version as the   
+  negotiated protocol (Lines~956--960). 
+  (Variable \code{serverVersion}, Lines~943--944, cannot be null for (TLS 1.3) \HelloRetryRequest\ 
+  nor \ServerHello\ messages.)
+  Further processing is deferred (Line~984) to class \code{ServerHello.T13ServerHelloConsumer}
+  (Listing~\ref{lst:T13ServerHelloConsumer}).
+  %\textcolor{red}{Maybe explicitly mention that Lines~958 \&~959 update \code{TransportContext}.}
+}]{listings/ServerHello.java}
+
+
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    69-70,
+    1172-1173,
+    1180-1181,
+    1183-1184,
+    1189-1190,
+    1193-1193,
+    1200-1203,
+    1214-1216,
+    1219-1219,
+    1221-1222,
+    1228-1228,
+    1230-1231,
+%    1236-1236, %Calls MaxFragExtension.shOnTradeConsumer (uninteresting?)
+    1330-1330,
+    1339-1356,
+    1362-1363
+  },
+  label=lst:T13ServerHelloConsumer,
+  caption={[\code{ServerHello.T13ServerHelloConsumer} consumes \ServerHello/\HelloRetryRequest]
+  Class \code{ServerHello.T13ServerHelloConsumer} defines method \code{consume}
+  to process incoming (TLS 1.3) \ServerHello\ or \HelloRetryRequest\ messages
+  (further to processing shown in Listing~\ref{lst:ServerHelloConsumer}). The method
+  updates the client's active context to include the server's selected cipher suite as the 
+  negotiated suite (Line~1190), extensions, including \TLSpsk\ (Lines~1200--1202), and 
+  additional session information  (Lines~1203--1231). (The client also updates the active 
+  context to include new keying material, Section~\ref{sec:hkdf}.) Moreover, the  
+  active context is made ready to received further server messages (Lines~1330--1356).
+}]{listings/ServerHello.java}
+
+
+
+
+
+
+
+
+
+

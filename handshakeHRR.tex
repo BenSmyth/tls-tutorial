@@ -1,0 +1,222 @@
+\subsubsection{\HelloRetryRequest}\label{sec:HelloRetryRequest}\label{sec:HRR}
+
+A server that consumes a \ClientHello\ message, without a share for the 
+server-selected group, responds with a \HelloRetryRequest\ message.
+That message is an instance of a \ServerHello\ message, with field \TLSrandom\
+set to a special constant value.\footnote{
+  For convenience, \HelloRetryRequest\ and \ServerHello\ messages are distinctly named 
+  (in the specification), despite \HelloRetryRequest\ messages being instances 
+  of \ServerHello\ messages. It follows that a \ServerHello\ message might be 
+  confused for a \HelloRetryRequest\ message, but this only occurs with probability 
+  $\frac{1}{2^{128}}$, hence, confusion will not occur in practice.
+}
+In addition to mandatory extension \TLSsupportedVersions, message \HelloRetryRequest\ 
+\ifSpecNotes
+\marginpar{The specification states ``[a \HelloRetryRequest] SHOULD 
+contain the minimal set of extensions necessary for the client to 
+generate a correct ClientHello pair," which I presume means the server
+should include \TLSkeyShare, but surely that is mandatory?} 
+\fi
+should include extension \TLSkeyShare\ to indicate the server-selected 
+group.\footnote{Extension \TLSkeyShare\ is associated with key shares
+  for \ClientHello\ messages and a single key share for \ServerHello\
+  messages, whereas the extension is associated with the server-selected 
+  group for \HelloRetryRequest\ messages. Hence, data structures associated
+  with extension \TLSkeyShare\ vary between messages.}
+(The server should defer producing a key share for this group
+until the client's response is received.) 
+The server may also include extension \TLScookie\ associated 
+with some data:
+
+\begin{description}
+
+\item \TLScookie: Some server-specific data for purposes including, but not limited to,
+  first, offloading state (required to construct transcripts) to the client, by 
+  storing the hash of the \ClientHello\ message in the cookie (with suitable integrity
+  protection); and, secondly, DoS protection, by forcing the client to demonstrate
+  reachability of their network address.
+
+\end{description}
+
+A \HelloRetryRequest\ message is consumed by the client, which performs
+the checks specified for \ServerHello\ messages (above), 
+additionally aborting with an \TLSillegalParameter\ alert if  
+the server-selected group is not amongst those offered (\ClientHello.\TLSsupportedGroups)
+or a key share for that group was already offered,
+or aborting with an an \TLSunexpectedMessage\ alert if a \HelloRetryRequest\
+message was already received in the same connection.
+%
+\begin{comment}
+Additional abort [due to \emph{a key share for that group was already offered}] inferred 
+(possibly incorrectly) from: 
+\begin{quote}
+  Clients MUST abort the handshake with an "illegal_parameter" 
+  alert if the HelloRetryRequest would not result in any change 
+  in the ClientHello.
+\end{quote}
+A change is required if key shares (plural) were offered in the Client Hello Message. (Those key 
+shares must be replaced by a single key share.) I suspect the spec meant  "would not result in a
+meaningful change," e.g., when a key share for the server-selected group was already offered.
+
+Actually, this is made explicit later in the specification:
+\begin{quote}
+  the client MUST verify that...the selected_group field does not
+  correspond to a group which was provided in the "key_share" extension
+  in the original ClientHello. If [the check] fails, then the client MUST 
+  abort the handshake with an "illegal_parameter" alert.
+\end{quote}
+\end{comment}
+%
+\ifSpecNotes
+\begin{color}{red}\\
+The specification seems to contain conflicting requirements: \marginpar{conflict reported 1 May 2020}
+\begin{quote}
+  Clients MUST check for this [supported_versions] extension \emph{prior to
+  processing} the rest of the ServerHello (although they will have to           
+  parse the ServerHello in order to read the extension)
+\end{quote}
+and
+\begin{quote}
+   the client \emph{MUST check} the
+   legacy_version, legacy_session_id_echo, cipher_suite, and
+   legacy_compression_method as specified in Section 4.1.3 and \emph{then}
+   process \emph{the extensions}, starting with determining the version using          
+   "supported_versions".
+\end{quote}
+which conflict on the emphasised text. 
+\end{color}
+\fi
+A client that is able to successfully consume a \HelloRetryRequest\ message
+responds with their original \ClientHello\ message, replacing the key shares 
+in extension \TLSkeyShare\ with a single key share from the server-selected group,
+removing extension \TLSearlyData\ if present,
+including a copy \label{comp:HRR:cons:cookie} of extension \TLScookie\ and 
+associated data if the extension appeared in the 
+\HelloRetryRequest\ message, and updating extension \TLSpsk\ by recomputing its 
+obfuscated age and binder values (\S\ref{sec:NST}).
+Moreover, the client should remove any pre-shared
+key identifiers that are incompatible with the server-selected cipher suite
+\ifSpecNotes
+\textcolor{red}{similarly to earlier issue regarding ``compatibility,''
+  in relation to \ClientHello, the spec is rather vague}
+\fi
+(i.e., remove identifiers associated with a hash function, AEAD algorithm, 
+  or both that are not defined by the server-selected cipher suite).
+That \ClientHello\ message is consumed by the server (\S\ref{sec:CH}) and 
+the server responds with a \ServerHello\ message, which must contain the
+previously selected cipher suite, namely, \HelloRetryRequest.\TLSCipherSuite.
+The \ServerHello\ message is consumed by the client as described above, 
+additionally aborting with an \TLSillegalParameter\ alert if the server-selected
+cipher suite differs from the previous server-selected cipher suite 
+(\HelloRetryRequest.\TLSCipherSuite), if extension \TLSsupportedVersions\
+is associated with a list of offered protocol versions that differ from 
+the previous list (\HelloRetryRequest.\TLSsupportedVersions), or if the 
+server's key share does not belong to the previous server-selected group 
+(\HelloRetryRequest.\TLSkeyShare).
+
+Beyond the above two instances of \ClientHello\ messages, a server that 
+receives a \ClientHello\ message at any other time must abort with an 
+\TLSunexpectedMessage\ alert.
+
+
+ 
+\begin{tcolorbox}
+The \HelloRetryRequest\ message is implemented by class \code{Server\-Hello.Server\-Hello\-Message}
+(Listings~\ref{lst:ServerHelloMessage}--\ref{lst:ServerHelloMessageB}). Instances 
+of that class are produced by class \code{Server\-Hello.T13\-Server\-Hello\-Producer} 
+(Listings~\ref{lst:T13HelloRetryRequestProducer}), which is instantiated as static 
+constant \code{Server\-Hello.t13\-Handshake\-Producer}. That constant is used indirectly
+-- via class \code{SSL\-Handshake.HELLO_RETRY_REQUEST} -- to produce \HelloRetryRequest\
+messages in class \code{Client\-Hello.T13\-Client\-Hello\-Consumer}
+(Listing~\ref{lst:T13ClientHelloConsumerC}). Consumption is implemented by 
+class \code{Server\-Hello.Server\-Hello\-Consumer} (Listing~\ref{lst:ServerHelloConsumer}
+\&~\ref{lst:ServerHelloConsumerB}). That class checks the presence of extension
+\TLSsupportedVersions, to determine whether the message is a TLS 1.3 \HelloRetryRequest\
+message, and the remainder of the message is processed by class
+\code{Server\-Hello.T13\-Hello\-Retry\-Request\-Consumer} 
+(Listing~\ref{lst:T13HelloRetryRequestConsumer}), if it is a TLS 1.3 message. 
+Successful consumption 
+results in transmission of a further \ClientHello\ message (which is 
+consumed by class \code{Client\-Hello.T13\-Client\-Hello\-Consumer}, 
+Listings~\ref{lst:T13ClientHelloConsumer} \&~\ref{lst:T13ClientHelloConsumerC}), 
+with any \TLScookie\ extension being indirectly processed -- via class \code{CookieExtension}
+-- by class \code{HelloCookieManager}.
+\end{tcolorbox}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    61-62,
+    732-733,
+    740-743,
+    745-747,
+    754-760,
+    762-762,
+    766-770,
+    776-778,
+    780-782,
+    784-786,
+    788-791  
+  },
+  label=lst:T13HelloRetryRequestProducer,
+  caption={[\code{ServerHello.T13HelloRetryRequestProducer} produces \HelloRetryRequest]
+  Class \code{ServerHello.T13HelloRetryRequestProducer} defines method 
+  \code{produce} to instantiate a \HelloRetryRequest\ message, i.e., 
+  a \ServerHello\ message with field \TLSrandom\ set to a special constant
+  value~(Lines 754--760), populate 
+  the extension field for the active context (Lines~767--770), write 
+  the %\ServerHello\ 
+  message to an output stream (Lines~777--778),
+  and prepare the server's active context for the client's response (Lines~762 \& 785--786).  
+}]{listings/ServerHello.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    876-877,
+    881-889,
+    891-892,
+    897-902,
+    909-909,
+%    914-919,
+    924-924,
+    926-926
+  },
+  label=lst:ServerHelloConsumerB,
+  caption={[\code{ServerHello.ServerHelloConsumer} consumes generic \HelloRetryRequest\ (cont.)]
+  Class \code{ServerHello.ServerHelloConsumer} (omitted from 
+  Listing~\ref{lst:ServerHelloConsumer}) defines method 
+  \code{onHelloRetryRequest} to consume a (generic) \HelloRetryRequest\ message.
+  Similarly to method \code{ServerHello.ServerHelloConsumer.onHelloServer}
+  (Listing~\ref{lst:ServerHelloConsumer}), the client's active context is updated to include
+  the server's selected version (Lines~886--892), aborting if that version was not
+  offered by the client (Lines~897--902). 
+  Further processing is deferred (Line~924) to class \code{ServerHello.T13HelloRetryRequestConsumer}
+  (Listing~\ref{lst:T13HelloRetryRequestConsumer}).
+}]{listings/ServerHello.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    77-78,
+    1373-1374,  
+    1376-1377,
+    1383-1383,
+    1389-1392,
+    1397-1397,
+%    1448-1454,
+    1459-1461
+  },
+  label=lst:T13HelloRetryRequestConsumer,
+  caption={[\code{ServerHello.T13HelloRetryRequestConsumer} consumes \HelloRetryRequest]
+  Class \code{ServerHello.T13HelloRetryRequestConsumer} defines method 
+  \code{consume} to process incoming (TLS 1.3) \HelloRetryRequest\ messages (further to 
+  processing shown in Listing~\ref{lst:ServerHelloConsumerB}). The method 
+  updates the active context to include the server's selected
+  cipher suite (Line~1383) and extensions (Line~1390--1397), and produces a 
+  \ClientHello\ message (Line~1459).
+}]{listings/ServerHello.java}        
+

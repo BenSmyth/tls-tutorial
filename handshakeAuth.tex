@@ -1,0 +1,732 @@
+\subsection{Authentication}\label{sec:handshakeAuth}
+
+The handshake protocol concludes with unilateral authentication of the server.
+(Client authentication is also possible, as discussed in Appendix~\ref{sec:CR}.)
+For (EC)DHE-only key exchange, the server must send a \Certificate\ message
+followed by a \CertificateVerify\ message (\S\ref{sec:CT}), immediately after an 
+\EncryptedExtensions\ message (except when client authentication is requested).
+Those messages are followed by a \Finished\ message (\S\ref{sec:FIN}). 
+For PSK-based key exchange, the pre-shared key serves to authenticate the
+handshake (without certificates), hence, \Certificate\ and \CertificateVerify\ 
+messages are not sent, and the server only sends a \Finished\ message.\footnote{%
+  RFC 8446 does not permit PSK-based key exchange with \Certificate\ and 
+  \CertificateVerify\ messages from the server; (direct) certificate-based server 
+  authentication is unsupported for PSK-based key exchange. (The specification notes 
+  that future documents may support such authentication.) Certificate-based
+  client authentication is compatible with PSK-based key exchange  
+  (Appendix~\ref{sec:CR}).
+}
+
+\subsubsection{\Certificate\ and \CertificateVerify}\label{sec:CT}\label{sec:CV}
+
+\ifPresentationNotes
+\textcolor{red}{This section defines \Certificate\ and \CertificateVerify\ messages
+  originating from servers. Some remarks are made with regards such messages originating from
+  clients, especially when the design looks peculiar. E.g., the existence of field 
+  \TLScertificateRequestContext\ makes little sense for \Certificate\ messages  
+  originating from servers, because the field contains a zero-length identifier.
+  To avoid (over) complicating the discourse, such details are kept to a minimum.
+  Is it worth sign-posting that \Certificate\ and \CertificateVerify\ messages 
+  originating from the client differ? I think not, that detail can be made 
+  explicit in the appendix, if at all.}
+\fi  
+
+A \Certificate\ message contains a certificate (along with its certificate chain)
+for authentication, and a \CertificateVerify\ message contains a 
+signature (constructed with the private key corresponding to the public key in the certificate)
+over a hash of the protocol's transcript, thereby, proving 
+possession of the private key used for signing, hence, identifying the server.
+%The former comprises of the following fields:
+
+A \Certificate\ message comprises of the following fields:
+
+\begin{description}
+
+\item \TLScertificateRequestContext: A zero-length identifier. (A
+  \Certificate\ message may also be sent in response to a 
+  \CertificateRequest\ message during post-handshake authentication, 
+  as discussed in Appendix~\ref{sec:CR}, in which case this field 
+  echos the identifier used by the \CertificateRequest\ message.)
+
+\item \TLScertificateList: A (non-empty) list of certificates and any associated
+  extensions.   %(The list may be empty for \Certificate\ messages sent by the client.) 
+%
+  (Any extensions must respond to ones listed in the \ClientHello\ message.
+  Moreover, an extension that applies to the entire chain should appear 
+  in the first extension listed.)
+  Certificates must be DER-encoded X.509v3 certificates, unless
+  an alternative certificate type was negotiated (using extension 
+  \TLSserverCertificateType). 
+  The server's certificate 
+  \ifPresentationNotes
+  \textcolor{red}{\emph{the server's certificate} seems 
+  a little ambiguous (a server may have many), but perhaps that's okay}
+  \fi
+  must appear first and every subsequent certificate should certify the 
+  previous one (i.e., every subsequent certificate should contain a 
+  signature -- using the private key corresponding to the certificate's
+  public key -- over the previous certificate's public key), hence, the 
+  list is a certificate chain. That first 
+  \begin{comment}
+  \sout{certificate must be signed using 
+  an algorithm amongst those offered by the client 
+  (\ClientHello.\TLSsignatureAlgorithms) and the}
+  \textcolor{red}{I can't find any evidence to support that -- my mistake?}
+  \end{comment}
+  certificate's public key 
+  should be compatible with \begin{comment}\sout{that algorithm}\end{comment}
+  an algorithm amongst those offered, by the client, for \CertificateVerify\
+  messages (i.e., advertised by \ClientHello.\TLSsignatureAlgorithms).
+  \ifSpecNotes
+  \textcolor{red}{
+    The spec requires that the certificate's public key be compatible
+    with the selected authentication algorithm from the client's 
+    "signature\_algorithms" extension, but does not require the server
+    to select such an algorithm.
+  }
+  \fi
+  Any remaining certificates' public keys should be compatible with an algorithm 
+  offered %by the client 
+  for \Certificate\ messages (i.e., those advertised 
+  by extension \TLSsignatureAlgorithmsCert\ if present and extension 
+  \TLSsignatureAlgorithms\ otherwise).
+  (When a certificate chain cannot be constructed from compatible algorithms, 
+  the chain may rely on algorithms not offered by the client, 
+  except for SHA-1, which must not be used, unless offered.)
+  All certificates must (explicitly) permit signature verification (whenever
+  certificates include a Key Usage extension).
+  (Self-signed certificates or trust anchors may be signed 
+  with any algorithm, trust anchor certificates 
+  may be omitted when they are known to be in the client's 
+  possession, and, for raw public keys, the list must contain 
+  \ifSpecNotes 
+  \textcolor{red}{
+  The spec requires \emph{no more than one certificate}.
+  The spec also requires a non-empty list for servers. 
+  So, we can infer \emph{exactly one} here [for the case of servers].
+  }
+  \fi
+  exactly one certificate.)
+
+\end{description}
+
+\noindent
+A server's \Certificate\ message is consumed by the client, which aborts
+with a \TLSdecodeError\ alert if the \Certificate\ message is empty
+and with a \TLSbadCertificate\ alert if a certificate relies on MD5, moreover,
+it is recommended that a client also aborts with a \TLSbadCertificate\ alert if
+a certificate relies on SHA-1. The client may validate certificates using 
+procedures beyond the scope of TLS. (The TLS 1.3 specification
+cites RFC~5280 as a reference for validation procedures.)
+
+A \CertificateVerify\ message comprises of the following fields:
+
+\begin{description}
+
+\begin{sloppypar}
+\item \TLSalgorithm: A signing algorithm, which must be amongst those
+  offered by the client (\ClientHello.\TLSsignatureAlgorithms), unless 
+  unless a certificate chain cannot be constructed from compatible algorithms.
+\end{sloppypar}
+  
+\item \TLSsignature: A signature, produced by the aforementioned algorithm, over the concatenation of: 
+  0x20 repeated 64 times, string ``TLS 1.3, server CertificateVerify'',
+  0x00, and the transcript hash (\S\ref{sec:hkdf:transcript}).
+
+\end{description}
+
+\noindent
+A server's \Certificate\ message is consumed by the client, which aborts
+with a  \TLSbadCertificate\ alert if the signature does not verify.
+
+\begin{tcolorbox}
+\Certificate\ and \CertificateVerify\ messages are implemented, produced, and consumed by 
+inner-classes of class \code{CertificateMessage} (Listings~\ref{lst:CertificateMessage}--\ref{lst:CertificateMessageD}) 
+and \code{CertificateVerify} (Listings~\ref{lst:CertificateVerify}--\ref{lst:CertificateVerifyD}), respectively.
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    732-734, %%CertificateEntry
+    736-739,
+    777-777,
+    782-784, %%T13CertificateMessage
+    786-798,
+    913-913
+  },
+  label=lst:CertificateMessage,
+  caption={[\code{CertificateMessage.T13CertificateMessage} defines \Certificate]
+  Class \code{CertificateMessage.T13CertificateMessage} defines the two fields of a 
+  \Certificate\ message (Lines~783--784) and a constructor to instantiate them
+  (Lines~786--798), where the latter field is defined over a list of pairs, comprising a 
+  certificate and any associated extensions (Lines~732--777).
+  A further (omitted) constructor is defined to instantiate a \Certificate\ message 
+  from an input buffer.
+}]{listings/CertificateMessage.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    73-74,
+    %732-739, %%CertificateEntry
+    %777-777,
+    %782-784, %%T13CertificateMessage
+    %786-798,
+    %800-806,
+    %913-913,
+    918-919, %%T13CertificateProducer
+    926-927,
+    %929-929,
+    %934-935,
+    %937-937,
+    929-937,
+    939-941,   %%onProduceCertificate
+    943-943,
+    955-956,
+    963-971,
+    974-975,
+    %977-981,       %%stapling
+    983-995,
+    1001-1003,
+    1005-1007,
+    1126-1126
+  },
+  label=lst:CertificateMessageB,
+  caption={[\code{CertificateMessage.T13CertificateProducer} produces \Certificate]
+  Class \code{CertificateMessage.T13CertificateProducer} defines method \code{produce} to write 
+  (to an output stream) a \Certificate\ message, originating from a client (Lines~931--932) 
+  or server (Lines~934--935). 
+  For the latter, a private key and authenticating certificates are wrapped inside an instance 
+  of class \code{X509Authentication.X509Possession} (Lines~943--955), using method \code{choosePossession} 
+  (Listing~\ref{lst:CertificateMessageC}); the server's active context is updated to include that 
+  private key and associated certificates (Lines~964--967); a \Certificate\ message is constructed
+  from the certificates (Lines~968--975); and the message is written to an output stream 
+  (Lines~1002--1003).
+}]{listings/CertificateMessage.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    1009-1011,
+    %1021-1021,
+    1022-1022,
+    1031-1035,
+    1043-1044,
+    1046-1047,
+    1053-1054,
+    1056-1057,
+    1062-1063,
+    1065-1066,
+    1071-1072
+  },
+  label=lst:CertificateMessageC,
+  caption={[\code{CertificateMessage.T13CertificateProducer} produces \Certificate\ (cont.)]
+  Class \code{CertificateMessage.T13CertificateProducer} (omitted from Listing~\ref{lst:CertificateMessageB}) 
+  defines method \code{choosePossession} to iterate over the client offered signature 
+  algorithms for certificates (defined by extension \TLSsignatureAlgorithmsCert, 
+  or \TLSsignatureAlgorithms\ if the former is absent), which class 
+  \code{CertSignAlgsExtension.CHCertSignatureSchemesUpdate} 
+  (respectively \code{SignatureAlgorithmsExtension.CHSignatureSchemesUpdate})
+  assigns to variable \code{hc.peerRequestedCertSignSchemes}; disregard
+  algorithms not offered for signing \CertificateVerify\ requests
+  (Lines~1033--1044), unsupported algorithms (Lines~1046--1054), 
+  or algorithms for which no suitable private key is available (1056--1063); and return a private key 
+  for the first suitable algorithm (Line~1065), or null if no such key
+  exists (Line~1071).
+}]{listings/CertificateMessage.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    71-72,
+    %732-739, %%CertificateEntry
+    %777-777,
+    %782-784, %%T13CertificateMessage
+    %786-798,
+    %800-806,
+    1131-1131, %%T13CertificateConsumer
+    1138-1139,
+    1141-1141,
+    1144-1146,
+    1151-1152,
+    1157-1159,
+    1186-1187,
+    1194-1200,
+    1202-1204,
+    1207-1207,
+    1209-1212,
+    %%
+    1369-1369
+  },
+  label=lst:CertificateMessageD,
+  caption={[\code{CertificateMessage.T13CertificateConsumer} consumes \Certificate]
+  Class \code{CertificateMessage.T13CertificateConsumer} 
+  defines method \code{consume} to instantiate a \Certificate\ message from an 
+  input buffer (Line~1145) and consume the message as originating from a server (Line~1151)
+  or client (Lines~1157). For the former, certificates are checked (Lines~1203--1204) and
+  the active context is updated (Lines~1209--1211).
+}]{listings/CertificateMessage.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    793-795,
+    813-813,
+    823-823,
+    825-826,
+    844-844,
+    854-854,
+    857-858,
+    860-861,
+    863-870,
+    878-910,
+    1030-1030
+  },
+  label=lst:CertificateVerify,
+  caption={[\code{CertificateVerify.T13CertificateVerifyMessage} defines \CertificateVerify]
+  Class \code{CertificateVerify.T13CertificateVerifyMessage} defines the two fields of a 
+  \CertificateVerify\ message (Lines~858 \&~861) and constructors to instantiate them from parameters
+  (Lines~863--910) or an input buffer (Listing~\ref{lst:CertificateVerifyB}). The former instantiates 
+  the first field with the 
+  chosen signature algorithm (Lines~867--870); derives the string over which to compute the signature
+  (Lines~878--890), using constant \code{serverSignHead} (Lines~764--823) for messages originating  
+  from a server, and constant \code{clientSignHead} (Lines~825--854) for messages originating from
+  a client, where bytes used to construct those contents are omitted for brevity; and instantiates
+  the second field as a signature over that string (Lines~892--909).
+}]{listings/CertificateVerify.java}%
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    912-914,
+    925-927,
+    941-948,
+    957-991
+  },
+  label=lst:CertificateVerifyB,
+  caption={[\code{CertificateVerify.T13CertificateVerifyMessage} defines \CertificateVerify\ (cont.)]
+  Class \code{CertificateVerify.T13CertificateVerifyMessage} (omitted from Listing~\ref{lst:CertificateVerify})
+  defines a constructor which instantiates a \CertificateVerify\ message from an input buffer, parametrising 
+  the first field with the chosen signature algorithm (Lines~926--927) and the second with the signature
+  (Line~957), if the signature verifies (Lines~974--980) with respect to the expected string
+  (Lines~959--971).
+}]{listings/CertificateVerify.java}%
+
+
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    60-61,
+    1035-1036,
+    1043-1046,
+    1048-1053,
+    1066-1073,
+    1075-1078,  
+    1084-1086,
+    1088-1090,
+    1108-1108
+  },
+  label=lst:CertificateVerifyC,
+  caption={[\code{CertificateVerify.T13CertificateVerifyProducer} produces \CertificateVerify]
+  Class \code{CertificateVerify.T13CertificateVerifyProducer} defines method \code{produce} to
+  write (to an output stream) a \CertificateVerify\ message, originating from a client (Lines~1067--1068) or server (Lines~1070--1071).  
+  \ifImplNotes
+  \textcolor{red}{The implementations of method \code{onProduceCertificateVerify} parameterised 
+  on \code{ServerHandshakeContext} and \code{ClientHandshakeContext} are identical up to 
+  variables \code{shc} and \code{chc}, and string \code{"server"} and \code{"client"}, refactoring
+  could eliminate unnecessary code.}
+  \textcolor{red}{Reported to security-dev@openjdk.java.net on 27 May 2020}
+  \fi
+  For the latter, a \CertificateVerify\ message is constructed (Lines~1077-1078)
+  and written to an output stream (Lines~1085-1086).
+}]{listings/CertificateVerify.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    58-59, 
+    1113-1114,
+    1121-1122,
+    1124-1126,
+    1141-1142    
+  },
+  label=lst:CertificateVerifyD,
+  caption={[\code{CertificateVerify.T13CertificateVerifyConsumer} consumes \CertificateVerify]
+  Class \code{CertificateVerify.T13CertificateVerifyConsumer} defines method \code{consume} to 
+  instantiate a \CertificateVerify\ message from an input buffer (Line~1125--1126), checking 
+  validity of the message's signature as a side effect.
+}]{listings/CertificateVerify.java}%
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\subsubsection{\Finished}\label{sec:FIN}
+
+The handshake protocol concludes with a \Finished\ message, which provides key confirmation, 
+binds the server's identity to the exchanged keys (and the client's identity, if client 
+authentication is used), and, for PSK-based key exchange, authenticates the handshake. 
+A \Finished\ message comprises of the following field:
+
+\begin{description}
+\item \TLSverifyData: An HMAC over the entire handshake.
+\end{description}
+
+\noindent
+The HMAC is computed as  
+\[
+  \HMACHash(\TLSfinishedKey,\TranscriptHash(\TLSHandshakeMessage))
+\]
+where \TLSHandshakeMessage\ is a concatenation of the protocol's messages (\S\ref{sec:hkdf:transcript}),
+\begin{multline*}
+  \TLSfinishedKey =   \HKDFExpandLabel(\TLShandshakeTrafficSecret,\\ ``finished", ``", \HashLength),
+\end{multline*}
+%
+%traffic secret $S$ is \TLShandshakeTrafficSecret\ when the \Finished\ message concludes an initial 
+%handshake and \TLSapplicationTrafficSecretN\ when concluding post-handshake authentication, and 
+%\TLSField{[sender]} is either \TLSField{client} or \TLSField{server}.
+%\ifSpecNotes
+%\textcolor{red}{
+%  Q: In the final instance, shouldn't \TLSapplicationTrafficSecret[client]{N}
+%  be \TLSapplicationTrafficSecretN? A: No, it should not. During post-handshake authentication, only the client sends a finished message (as far
+%  as I can tell).
+%}
+%\fi
+%and traffic secret $S$ is \TLSserverHandshakeTrafficSecret\ when the \Finished\ message originates from
+%a server to conclude an initial handshake, \TLSclientHandshakeTrafficSecret\ when originating 
+%from a client to conclude an initial handshake, and \TLSapplicationTrafficSecret[client]{N} when 
+%concluding post-handshake authentication. 
+%(Post-handshake authentication is only concerned with updating the client's application-traffic key, 
+%for the purposes of blinding the client's identity to that key. Hence, secret \TLSfinishedKey\ is not 
+%concerned with traffic secret \TLSapplicationTrafficSecret[server]{N}. Beyond traffic keys, a key 
+%established by a \NewSessionTicket\ message, sent after post-handshake authentication, will also be 
+%bound to the client's identity.)
+%
+%% Defer post-handshake aspects to the appendix.
+%
+and \TLSField{[sender]} is \TLSField{server} when the \Finished\ message originates from
+a server to conclude a handshake and \TLSField{client} when originating from a client. %to conclude a handshake. 
+
+
+A \Finished\ message is first sent by the server (immediately after a \CertificateVerify\ message 
+for (EC)DHE-only key exchange and immediately after an \EncryptedExtensions\ message for PSK-based 
+key exchange). That message is consumed by the client, which recomputes the HMAC (using secret
+\TLSserverHandshakeTrafficSecret) and checks that it matches the \Finished\ message's HMAC 
+(\Finished.\TLSverifyData), terminating the connection with a \TLSdecryptError\ alert if the check 
+fails. A client that successfully consumes a server's \Finished\ message responds with its own \Finished\
+message, which is similarly consumed by the server (albeit using secret \TLSclientHandshakeTrafficSecret).
+(That message is preceded by client generated \Certificate\ and \CertificateVerify\ messages, if 
+client authentication is used.) Once endpoints have successfully consumed \Finished\ messages, 
+(encrypted) application data may be exchanged. Moreover, a server may send (encrypted) application 
+data immediately after sending its \Finished\ message (i.e., without consuming a \Finished\ message), 
+albeit, since \ClientHello\ messages may be replayed, any such data is sent without assurance of the 
+client's liveness (nor identity). 
+
+\begin{tcolorbox}
+\Finished\ messages are implemented, produced, and consumed by inner-classes of class \code{Finished} 
+(Listings~\ref{lst:Finished}--\ref{lst:T13FinishedConsumer:ServerSide}).
+    \ifImplNotes
+\textcolor{blue}{Classes \code{Finished.T13FinishedProducer} and \code{Finished.T13FinishedConsumer}
+  seem to contain some obsolete secure renegotiation code.} 
+    \fi
+\ifPresentationNotes
+\textcolor{red}{Perhaps separate the listings into production/consumption, and establishing keys, as we 
+did earlier. Or perhaps not, the reader should be able to consume it all (no pun intended) at this stage.}
+\fi
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    69-70,
+    72-73,
+    75-76,
+    78-84,
+    86-87,
+    89-98,
+    106-107,
+    109-114,
+    117-123, 
+    156-156
+  },
+  label=lst:Finished,
+  caption={[\code{Finished.FinishedMessage} defines \Finished]
+  Class \code{Finished.FinishedMessage} defines the one field of a \Finished\ message (Line~70)
+  and two constructors to instantiate it. The first constructor parameterises the field with an HMAC
+  it constructs (Lines 72--87) and the second parses an HMAC from an input buffer (Lines 92--107),
+  recomputes the expected HMAC itself (Lines~109--118), and checks that the HMACs match
+  (Lines~119--122). The HMACs are (indirectly) computed using method 
+  \code{T13VerifyDataGenerator.createVerifyData} (Listing~\ref{lst:FinishedB}).
+}]{listings/Finished.java}%
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    326-329,
+    332-333,
+    335-358
+  },
+  label=lst:FinishedB,
+  caption={[\code{Finished.T13VerifyDataGenerator} defines \Finished\ (cont.)]
+  Class \code{Finished.T13VerifyDataGenerator} defines method \code{createVerifyData}
+  to compute HMACs for \Finished\ messages. 
+  \ifImplNotes
+  \textcolor{red}{Comment on Line 325 doesn't match the class}
+  \fi
+  That method computes variable \code{finishedSecret} by indirect application
+  of method \code{HKDF.expand} to inputs including secret \code{context.baseReadSecret} or
+  \code{context.baseWriteSecret}, and \TLSHKDFLabelExt, which is computed over the 
+  negotiated hash function's output length, 
+  label $``\textrm{tls13\textvisiblespace{}finished}"$, and null ASCII character 0x00,
+  using class \code{SSLBasicKeyDerivation} to apply method \code{HKDF.expand}.
+  (Class \code{SSLBasicKeyDerivation} uses method \code{createHkdfInfo}
+  to handle concatenation and is reliant on method \code{Record.putBytes8} to introduce 
+  0x00. This differs from a similar application of method \code{HKDF.expand} by 
+  class \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation}, which introduces 
+  0x00 itself.)
+  \ifImplNotes
+  \textcolor{red}{Classes \code{SSLBasicKeyDerivation} and 
+  \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation} are almost identical, 
+  and some refactoring could eliminate one of the classes.}
+  \fi
+}]{listings/Finished.java}%
+
+\begin{comment}
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    35-38,
+    40-45,
+    48-58,
+    81-81
+  },
+  label=lst:SSLBasicKeyDerivation,
+  caption={[\code{SSLBasicKeyDerivation} defines \Finished\ (cont.)]
+  Class \code{SSLBasicKeyDerivation} defines three fields (Lines~36--38),
+  a constructor to instantiate them (Lines~40-45), and method \code{deriveKey}
+  to return an HMAC computed by application of method \code{HKDR.expand}
+  (Lines~52--53) to inputs including \TLSHKDFLabelExt, which is computed 
+  (Line~44) over some label, context, and length, using static method 
+  \code{SSLBasicKeyDerivation.createHkdfInfo} to handle concatenation.
+    \textcolor{red}{Drop this figure, pushing details into the previous figure}
+}]{listings/SSLBasicKeyDerivation.java}%
+\end{comment}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    63-64,
+    630-631,
+    638-639,  
+    641-649,
+    738-741,
+    743-743,
+    749-751,
+    753-754,
+    762-763,
+    772-783
+  },
+  label=lst:T13FinishedProducer,
+  caption={[\code{Finished.T13FinishedProducer} produces server-side \Finished]
+  Class \code{Finished.T13FinishedProducer} defines method \code{produce}
+  to write (to an output stream) a \Finished\ message, originating from a 
+  client or a server, and to establish \TLSMasterSecret\ when the message 
+  originates from such a server. For messages originating 
+  from servers, processing  
+  proceeds with method \code{onProduceFinished}, parameterised by the 
+  server's active context. That method updates the transcript hash's 
+  digest to include all handshake protocol messages (Line~741), 
+  instantiates and outputs a \Finished\ message (Lines~743--751), and 
+  establishes \TLSMasterSecret\ (Lines~782--783). Variable \code{shc.handshakeKeyDerivation} 
+  (Line~754) is assigned by class \code{ServerHello.T13ServerHelloProducer} (Listing 27)
+  as an instance of class \code{SSLSecretDerivation}, parameterised by 
+  \TLSHandshakeSecret, hence, the salt necessary to establish 
+  \TLSMasterSecret\ is correctly derived (Line~774), as-is the necessary 
+  \HashLength-length string of zeros (Lines~780--781).
+}]{listings/Finished.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    785-786,
+    788-811,
+    814-815,
+    824-831
+  },
+  label=lst:T13FinishedProducerB,
+  caption={[\code{Finished.T13FinishedProducer} produces server-side \Finished\ (cont.)]
+  Class \code{Finished.T13FinishedProducer} defines method \code{onProduceFinished}
+  (continued from Listing~\ref{lst:T13FinishedProducer}) to derive traffic   
+  secret \TLSserverApplicationTrafficSecret\ from an instance of  
+  class \code{SSLSecretDerivation}, parameterised by \TLSMasterSecret\ (Lines~785--790); 
+  constructs an instance of \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation}
+  from that secret (Lines~791--792); and uses that instance to derive the corresponding 
+  traffic keys \TLSField{server\_write\_key} (Lines~793--794) and
+  \TLSField{server\_write\_iv} (Lines~795--796), used to encrypt (and write) outgoing 
+  traffic (Lines~797--807). Moreover, the method prepares the server's active context
+  for the client's response (Lines~825--826).
+}]{listings/Finished.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    61-62,
+    836-836,
+    843-844,
+    846-854,
+    856-858,
+    874-884,
+    892-893,
+    909-920
+  },
+  label=lst:T13FinishedConsumer,
+  caption={[\code{Finished.T13FinishedConsumer} consumes server-generated \Finished]
+  Class \code{Finished.T13FinishedConsumer} defines method \code{consume}
+  to read (from an input buffer) a \Finished\ message, originating from a 
+  client or a server, and to establish \TLSMasterSecret\ when the message 
+  originates from such a server. For messages 
+  originating from servers, processing proceeds with method \code{onConsumeFinished}, 
+  parameterised by the client's active context. That method instantiates 
+  a \Finished\ message from the input buffer (Line~858), updates the transcript hash's 
+  digest to include all handshake protocol messages (Line~883), and 
+  establishes \TLSMasterSecret\ (Lines~919--920). (Computations are similar to 
+  Listing~\ref{lst:T13FinishedProducer} and refactoring could eliminate unnecessary 
+  code.) 
+}]{listings/Finished.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    922-947,
+    950-951,
+    953-963,
+    965-972
+  },
+  label=lst:T13FinishedConsumerB,
+  caption={[\code{Finished.T13FinishedConsumer} consumes server-generated \Finished\ (cont.)]
+  Class \code{Finished.T13FinishedConsumer} defines method \code{consume}
+  (continued from Listing~\ref{lst:T13FinishedConsumer}) to derive traffic   
+  secret \TLSserverApplicationTrafficSecret\ (Lines~922--927) and corresponding 
+  traffic keys \TLSField{server\_write\_key} (Lines~930--931) and
+  \TLSField{server\_write\_iv} (Lines~932--933), used to decrypt (and read) incoming 
+  traffic (Lines~934--943). (Computations are similar to Listing~\ref{lst:T13FinishedProducerB} 
+  and refactoring could eliminate unnecessary code.) Moreover, the method updates the 
+  client's active context to include a producer for \Finished\ messages (Lines~956--957);
+  constructs an array of producers clients might use during the remainder of the 
+  handshake protocol, namely, produces for messages \Certificate, \CertificateVerify, 
+  and \Finished, in the order that they might be used (Lines~958--963); and uses 
+  those producers to produce messages when the active context includes the producer
+  (Lines~965--971). Since a \Finished\ message producer is included, a \Finished\
+  message is always produced, using class \code{Finished.T13FinishedProducer}
+  (Listing~\ref{lst:T13FinishedProducer} \&~\ref{lst:T13FinishedProducer:ClientSide}).
+}]{listings/Finished.java}%
+
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    651-654,
+    656-656,
+    662-664,
+    672-673,
+    681-682,
+    691-712,
+    714-714,
+    717-718,
+    %727-736
+    734-736
+  },
+  label=lst:T13FinishedProducer:ClientSide,
+  caption={[\code{Finished.T13FinishedProducer} produces client-side \Finished\ (cont.)]
+  Class \code{Finished.T13FinishedProducer} defines method \code{onProduceFinished} 
+  parameterised by a client's active context (omitted from Listing~\ref{lst:T13FinishedProducer})
+  to write (to an output stream) a \Finished\ message originating from a 
+  client, and to derive traffic secret \TLSclientApplicationTrafficSecret\ (Lines~692--693) 
+  and corresponding traffic keys \TLSField{client\_write\_key} (Lines~698--699) and
+  \TLSField{client\_write\_iv} (Lines~700--701), used to encrypt (and write) outgoing
+  traffic (Lines~702--712). %Moreover, the method \textcolor{red}{...XXX...}
+}]{listings/Finished.java}%
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    974-976,
+    991-995,
+    1003-1004,
+    %1013-1019,
+    1020-1040,
+    %1041-1048,
+    1049-1049,
+    1052-1053,
+    %1073-1073,
+    1075-1075
+  },
+  label=lst:T13FinishedConsumer:ServerSide,
+  caption={[\code{Finished.T13FinishedConsumer} consumes client-generated \Finished\ (cont.)]
+  Class \code{Finished.T13FinishedConsumer} defines method \code{onConsumeFinished} 
+  parameterised by a server's active context (omitted from Listing~\ref{lst:T13FinishedConsumer})
+  to read (from an input buffer) a \Finished\ message originating from a 
+  client, and to derive traffic secret \TLSclientApplicationTrafficSecret\ (Lines~1022--1023) 
+  and corresponding traffic keys \TLSField{client\_write\_key} (Lines~1027--1028) and
+  \TLSField{client\_write\_iv} (Lines~1029--1030), used to decrypt (and read) incoming
+  traffic (Lines~1031--1040). (Computations are similar to Listing~\ref{lst:T13FinishedProducer:ClientSide} 
+  and refactoring could eliminate unnecessary code.)
+  \ifImplNotes
+  \textcolor{blue}{Not only computation similar to Listing~\ref{lst:T13FinishedProducer:ClientSide}, 
+    but computation is (unsurprisingly) similar between other traffic key derivations. This could be 
+    resolved by refactoring.}
+  \textcolor{red}{Reported to security-dev@openjdk.java.net on 27 May 2020}
+  \fi
+}]{listings/Finished.java}%
+
+Traffic secrets \TLSserverApplicationTrafficSecret\ and \TLSclientApplicationTrafficSecret\
+are used to derive application-traffic keys to protect application data. 
+
+\begin{comment}
+\sout{Both secrets are 
+computed from the protocol's transcript, but at different stages of the transcripts
+evolution. Indeed, the former traffic secret is computed from the transcript after the server
+generates its \Finished\ message (and when the transcript concludes with that server-generated 
+\Finished\ message), whereas the latter traffic secret is computed after the client generates 
+its \Finished\ message (and when the transcript concludes with that client-generated \Finished\
+message).} \textcolor{red}{That's false according to the spec: Figure~\ref{fig:keyDerivation} 
+shows that both secrets are computed from transcripts ending with a server-generated \Finished\ 
+message. But, the code suggests the crossed-out text is true. Truthify.}
+%%
+%% I have confirmed that both secrets are computed from transcripts ending with a 
+%% server-generated \Finished\ message. I haven't dug into the code too deeply. My 
+%% guess is that 
+
+\end{comment}
+
+\subsubsection*{Application data}
+
+TLS protects application-layer communication independently of specific applications.
+%How applications should use TLS is unspecified. 
+Independence %(between applications and TLS) 
+is readily apparent from the specification: There 
+is no mention of interaction between applications and TLS. Designers and implementors
+must decide for themselves how to use TLS within their applications. For instance,
+when to initiate a handshake and how to validate certificates.
+
+
+

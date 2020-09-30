@@ -1,0 +1,792 @@
+\subsection{Key establishment}\label{sec:hkdf}
+
+Once a \ServerHello\ message has been sent, a shared (handshake traffic) key can be 
+established, and that key can be used to enable confidentiality 
+and integrity for the remainder of the handshake protocol, which includes the 
+subsequent \EncryptedExtensions\ message (\S\ref{sec:EE}). The initial shared key 
+is derived by application of a key derivation function, 
+known as a \emph{HMAC-based Extract-and-Expand Key Derivation Function} (HKDF),
+which applies the negotiated hash function to the handshake protocol's 
+transcript and either the negotiated pre-shared key, the negotiated (EC)DHE key,
+%(Appendix~\ref{sec:dheKey}), 
+or both. Further shared (application traffic) keys can be established 
+similarly, to protect additional data, including application data.
+Since transcripts include client- and server-generated nonces, shared (traffic) keys
+are always unique, regardless of whether the pre-shared key (or for that matter
+(EC)DHE key shares) are used for multiple connections.
+
+\subsubsection{Transcript hash}\label{sec:hkdf:transcript}
+
+A protocol's transcript concatenates each of the protocol's 
+messages, in the order that they were sent, including message headers (namely, type 
+and length fields, as introduced in Section~\ref{sec:record}), 
+but excluding record-layer headers. The concatenation of messages
+starts with \ClientHello, optionally followed by \HelloRetryRequest\ 
+and \ClientHello\ if present, and proceeded by \ServerHello.
+That transcript is used in computing transcript traffic keys 
+(which protect the remaining handshake messages). Thereafter, 
+the concatenation of messages is extended with \EncryptedExtensions\
+and optionally \CertificateRequest, \Certificate, and 
+\CertificateVerify\ if sent. A MAC over that transcript 
+is included in a server's \Finished\ message, and a signature
+over the transcript (excluding message \CertificateVerify) is 
+included in any \CertificateVerify\ message. Once extended with
+that \Finished\ message, the transcript is used in computing
+%
+\begin{comment}
+the application traffic key. 
+\end{comment}
+%
+%% Clarified in email from Eric Rescorla, dated 11 May 2020: 
+%
+the application traffic keys (which protect application traffic).
+Finally, for a client's \Finished\ message, the transcript
+is further extended with their \EndOfEarlyData, \Certificate,  
+and \CertificateVerify\ messages (as relevant), before computing a 
+MAC, wherein any \CertificateVerify\ message includes a signature over
+that transcript (excluding itself). 
+%
+\begin{comment}
+Finally, the client's application
+traffic key is computed after extending the transcript with the 
+client's \Finished\ message.
+\end{comment}
+
+
+To capture a transcript hash (i.e., a hash of a transcript), 
+we introduce function \TranscriptHash\ such that
+%
+\[
+  \TranscriptHash(M_1,\dots,M_n) = \Hash(M_1 \parallel \dots \parallel M_n)
+\]
+%
+for handshake protocol messages $M_1,\dots,M_n$ (sent in that order), where \Hash\ is the 
+negotiated hash function and $\parallel$ denotes concatenation, except when 
+messages $M_1$ and $M_2$ are \ClientHello\ and \HelloRetryRequest\ messages, 
+respectively. In that case, $M_1$ is replaced by $M'_1$ in the hash, i.e., 
+%
+\[
+  \TranscriptHash(M_1,\dots,M_n) = \Hash(M'_1 \parallel M_2 \parallel \dots \parallel M_n),
+\]
+where $M'_1$ is the following special, synthetic handshake message, 
+namely, \ifSpecNotes\marginpar{Truthify, is the 0x0000 padding or something else}\fi
+%
+\begin{align*}
+  M'_1 = 
+    & \mathbin{\phantom{\parallel}}  0\textrm{x}FE &\textrm{/* header type \TLSmessageHash */}     \\
+    & \parallel                      0\textrm{x}0000 \parallel \HashLength &\textrm{/* (padded) header length */} \\
+    & \parallel                      \Hash(M_1) &\textrm{/* hash of \ClientHello\ message */}
+\end{align*}
+%
+where \HashLength\ is the output length in bytes of negotiated hash function \Hash.
+This special case enables servers to construct transcripts without maintaining 
+state, in particular, they need not store an initial \ClientHello\ message,
+since it can be stored in extension \TLScookie\ (\S\ref{sec:HRR}).\footnote{%
+  \HelloRetryRequest\ messages need not be maintained by the server either, since
+  they can be reconstructed from \ClientHello\ messages and the special constant
+  value that is used by field \HelloRetryRequest\code{.}\TLSrandom.}
+
+\begin{tcolorbox}
+Transcript hashing is implemented by class \code{HandshakeHash} (Listing~\ref{lst:HandshakeHash}).
+Instances of that class form part of the active client and server contexts (instantiated by classes 
+\code{SSL\-Engine\-Impl} and \code{SSL\-Socket\-Impl}), which are updated by classes 
+\code{SSL\-Engine\-Input\-Record} and \code{SSL\-Engine\-Output\-Record}, respectively classes 
+\code{SSL\-Socket\-Input\-Record} and \code{SSL\-Socket\-Output\-Record}. Moreover, in the case 
+of a \HelloRetryRequest\ message, it is updated by class 
+\code{Server\-Hello.T13\-Hello\-Retry\-Request\-Consumer} (Listing~\ref{lst:T13HelloRetryRequestConsumerB})
+and by class \code{HelloCookieManager} (Listing~\ref{lst:T13HelloCookieManager}), when consuming any 
+\TLScookie\ extension associated with a corresponding \ClientHello\ message.
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    37-39,
+    %40-40    %%Omit field hasBeenUsed and use of that field. It used by SSLMasterKeyDerivation and HandshakeContext
+    41-44,
+    %45-45,
+    46-46,
+    85-87,
+    106-109,
+    116-119,
+    164-168,
+    %169-169,
+    170-170,
+    172-176,
+    178-180,
+    %181-181,
+    182-182,
+    645-645    
+  },
+  label=lst:HandshakeHash,
+  caption={[\code{HandshakeHash} supports transcript hashes]
+    Class \code{HandshakeHash} defines field \code{reserves} to maintain
+    a list of protocol messages (Line~39), which can be extended (e.g., with incoming 
+    messages) using method \code{receive} (Lines~85--87), moreover, the class defines 
+    field \code{transcriptHash} 
+    as a message digest algorithm (Line~38, see also Lines~58 \& 551--644), whose digest 
+    can be updated to include the aforementioned messages using methods \code{deliver}
+    (Lines~116--119) and \code{update} (Lines~164--170). (The former method is used when 
+    the digest should also include an additional message, e.g., an outgoing message, whereas 
+    the latter only updates the digest with messages listed by field \code{reserves}.) 
+    Furthermore, method \code{digest} returns the hash over the current digest (Lines~172--176) 
+    and method \code{finish} resets all fields (Lines~178--182).
+}]{listings/HandshakeHash.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    1401-1401,
+    1403-1408,
+    1411-1412,
+    1415-1446
+  },
+  label=lst:T13HelloRetryRequestConsumerB,
+  caption={[\code{ServerHello.T13HelloRetryRequestConsumer} modifies transcript hashes]
+    Class \code{ServerHello.T13HelloRetryRequestConsumer} (omitted from 
+    Listing~\ref{lst:T13HelloRetryRequestConsumer}) modifies the transcript hash 
+    in the special case of \HelloRetryRequest\ messages: A hash of the \ClientHello\
+    message is computed (Lines 1401--1415), using variable \code{chc.initialClientHelloMsg}
+    that was initialised in Listing~\ref{lst:ClientHelloKickstartProducer}; a special,
+    synthetic handshake message $M'_1$ is computed, as the concatenation of $0\textrm{x}FE$
+    (Line~1426), $0\textrm{x}0000$ (Lines~1427--1428), \HashLength\ (Line~1429), and 
+    the hashed \ClientHello\ message (Lines~1430--1431); the transcript hash's digest
+    is reset and the special message is added (Line~1433--1434); a further message is computed 
+    as the concatenation of $0\textrm{x}02$ (Line~1438), the \HelloRetryRequest\ message 
+    length (Lines~1439--1441), and the \HelloRetryRequest\ (Lines~1443--1444); and that 
+    message is added to the transcript hash's digest too (Line~1446). Thus, the client's
+    active context includes the expected digest.
+}]{listings/ServerHello.java}
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    200-201,
+    %202-216,
+    271-272,
+    278-279,
+    284-284,
+    291-292,
+    312-335,
+    338-339
+  },
+  label=lst:T13HelloCookieManager,
+  caption={[\code{HelloCookieManager.T13HelloCookieManager} modifies transcript hashes]
+    Class \code{HelloCookieManager.T13HelloCookieManager} processes cookies, in particular, 
+    method \code{isCookieValid} tests the validity of cookies. That method also updates
+    the transcript hash in the special case of \HelloRetryRequest\ messages: A
+    \HelloRetryRequest\ message is reconstructed and added to the front of the 
+    transcript hash's digest (Lines~322--324). Moreover, a special, synthetic handshake 
+    message $M'_1$ is computed as the concatenation of $0\textrm{x}FE0000 \parallel \HashLength$ 
+    and the hash (of a \ClientHello\ message) stored in the cookie, and message 
+    $M'_1$ is added to the front of the transcript hash's digest (Lines 327--335).
+    \ifImplNotes\textcolor{red}{I don't understand why \code{HandshakeHash.push} is needed, it
+    seems that the transcript hash could be reset and the digest reconstructed, similarly
+    to Listing~\ref{lst:T13HelloRetryRequestConsumerB}. Presumably there's a side-case
+    when this doesn't work (probably because the digest already contains something useful, hence, 
+    cannot be reset).}\fi
+}]{listings/HelloCookieManager.java}
+
+
+
+
+
+
+\subsubsection{Key derivation}\label{sec:secrets}
+
+The key derivation process combines the negotiated pre-shared key, the 
+(EC)DHE key, or both, with the protocol's transcript. The process 
+uses function \HKDFExtract, which is defined by RFC~5869
+such that 
+%
+\[
+  \HKDFExtract(\TLSHKDFSalt,\TLSHKDFSecret) = 
+  \left\{
+    \begin{matrix*}[l]
+      \HMACHash(\zeros,\TLSHKDFSecret)             & \textrm{if \TLSHKDFSalt\ is null}\\
+      \HMACHash(\TLSHKDFSalt,\TLSHKDFSecret)  & \textrm{otherwise},
+    \end{matrix*}
+  \right.
+\]
+%
+%parameterised by salt value $\TLSHKDFSalt$ 
+%%(and is a \HashLength-length string of zeros if not provided) 
+%and secret $\TLSHKDFSecret$, 
+where $\zeros$ denotes a \HashLength-length string of zeros
+\ifSpecNotes
+\textcolor{red}{Rather than \zeros, The spec uses 0, which isn't particularly intuitive, 
+since it can be confused for, well, integer 0. We deviate for clarity.}
+\fi
+(and function \HMACHash\ is specified by RFC~2104 over keys and messages, hence, the above
+definition treats $\TLSHKDFSalt$ as a key and $\TLSHKDFSecret$ 
+as a message when applying \HMACHash).
+In the context of key derivation, 
+the salt is initially $\zeros$ 
+and the secret is initially the pre-shared key or $\zeros$ if no such 
+key was negotiated. The function's first output is known 
+as \TLSEarlySecret. It follows that
+\[
+  \TLSEarlySecret = \HKDFExtract(\zeros,\textrm{PSK}),
+\]
+where PSK is $\zeros$ for (EC)DHE-only key exchange and
+otherwise the pre-shared key, which provides raw 
+entropy without context.
+Context is added using function \DeriveSecret, defined 
+such that 
+%
+\[
+  \DeriveSecret(\TLSHKDFSecret,\TLSHKDFLabel,\TLSHandshakeMessage) 
+    %= \HKDFExpandLabel(\TLSHKDFSecret, \TLSHKDFLabel, \TranscriptHash(\TLSHandshakeMessage), \HashLength)
+      %= \HKDFExpand(\TLSHKDFSecret,\TLSHKDFLabelExt,\HashLength)
+        %= \HMACHash(\TLSHKDFSecret, ``" \parallel \TLSHKDFLabelExt \parallel 0\textrm{x}01), \marginpar{Does $``" \parallel M = M$? If so, simplify left}
+          = \HMACHash\left(\TLSHKDFSecret, \TLSHKDFLabelExt \parallel 0\textrm{x}01\right),
+\]
+%
+%parameterised by secret \TLSHKDFSecret\ and label \TLSHKDFLabel, 
+where \TLSHandshakeMessage\ is a concatenation of the protocol's messages (\S\ref{sec:hkdf:transcript})
+and $\TLSHKDFLabelExt$ is defined as the following message,\footnote{
+  RFC 8446 defines function \DeriveSecret\ in terms of functions \HKDFExpandLabel\
+  and \HKDFExpand, namely,
+  $\DeriveSecret(\allowbreak\TLSHKDFSecret,\allowbreak\TLSHKDFLabel,\allowbreak\TLSHandshakeMessage) 
+    = \HKDFExpandLabel(\allowbreak\TLSHKDFSecret,\allowbreak \TLSHKDFLabel,\allowbreak \TranscriptHash(\TLSHandshakeMessage),\allowbreak \HashLength)
+      = \HKDFExpand(\allowbreak\TLSHKDFSecret,\allowbreak \TLSHKDFLabelExt,\allowbreak \HashLength)
+        = \HMACHash(\allowbreak\TLSHKDFSecret,\allowbreak %``" \parallel 
+                                \TLSHKDFLabelExt \parallel 0\textrm{x}01)$, 
+  where $\TLSHKDFLabelExt = \HashLength \parallel ``\textrm{tls13\textvisiblespace}" \parallel \TLSHKDFLabel \parallel \TranscriptHash(\TLSHandshakeMessage)$.
+  By comparison, we define function \DeriveSecret\ more directly and defer the 
+  additional functions to Section~\ref{sec:hkdf:trafficKeys}, where we consider
+  functions \HKDFExpandLabel\ and \HKDFExpand\ more generally (in particular,
+  the former may omit transcript hashes in favour of strings and the latter
+  may consider lengths other than \HashLength).
+}
+namely,
+\[
+  \TLSHKDFLabelExt = \HashLength \parallel ``\textrm{tls13\textvisiblespace}" \parallel \TLSHKDFLabel \parallel \TranscriptHash(\TLSHandshakeMessage).
+\]
+Function \DeriveSecret\ is used (with the empty context) to derive salt for subsequent
+applications of \HKDFExtract. Indeed, we have
+\[
+  \TLSHandshakeSecret = \HKDFExtract(\DeriveSecret(\TLSEarlySecret, ``\textrm{derived}", ``"),\textrm{K}),
+\]
+where \textrm{K} is \zeros\ for PSK-only key exchange and
+otherwise the (EC)DHE key, moreover, 
+\[
+  \TLSMasterSecret = \HKDFExtract(\DeriveSecret(\TLSHandshakeSecret, ``\textrm{derived}", ``"),\zeros),
+\]
+%
+noting that \TranscriptHash(``'') = \Hash(``''), that is, the hash of the empty string
+(null ASCII character 0x00).
+Traffic secrets are derived from \TLSEarlySecret, \TLSHandshakeSecret, and \TLSMasterSecret, 
+as shown in Figure~\ref{fig:keyDerivation}, by adding context. Those secrets are used to 
+derive traffic keys (\S\ref{sec:hkdf:trafficKeys}) to protect the data summarised in the 
+following table:
+
+\ifPresentationNotes
+\marginpar{Table nor Listing are complete.}
+\fi
+
+\begin{table}[H]
+\caption{Traffic secrets that underlie traffic keys used to protect data}
+\label{table:secrets}
+\centering
+\begin{tabular}{l|l}
+Underlying traffic secret & Protected data \\ \hline
+%\TLSbinderKey & \textcolor{red}{to do}\\
+\TLSclientEarlyTrafficSecret & 0-RTT \\
+%\TLSearlyExporterMasterSecret & \textcolor{red}{omit exporterts?} \\
+\TLShandshakeTrafficSecret & Handshake extensions %\EncryptedExtensions,  
+  %\CertificateRequest, \Certificate, \CertificateVerify, and \Finished. 
+  \\
+\TLSapplicationTrafficSecretN & Application traffic %\\
+%\TLSexporterMasterSecret & \textcolor{red}{omit exporterts?} \\
+%\TLSresumptionMasterSecret& \textcolor{red}{to do}
+\end{tabular}
+\end{table}
+
+\noindent
+where \TLSField{[sender]} is either \TLSField{client} or \TLSField{server}, and
+\TLSapplicationTrafficSecretN[N+1] is defined as follows when $N>0$, namely,
+%
+\begin{multline*}
+  \TLSapplicationTrafficSecretN[N+1] \\
+    = \DeriveSecret(\TLSapplicationTrafficSecretN, ``\textrm{traffic upd}", ``"),
+\end{multline*}
+%
+which is used to update application-traffic secrets.
+
+
+\begin{figure}
+%%
+%% Lines 5159 & 5189 of listings/rfc8446.txt is 0, whereas we're using 0s
+%% 
+\begin{lstlisting}[belowskip=0pt,numbers=none,frame=none,nolol=true]
+             0s
+\end{lstlisting}
+%
+\lstinputlisting[
+  aboveskip=0pt,
+  belowskip=0pt,
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    %5159-5162,
+    %5166-5168,
+    %5159-5168,
+    5160-5168,
+    5172-5188
+  }
+]{listings/rfc8446.txt}
+%
+\begin{lstlisting}[aboveskip=0pt,belowskip=0pt,numbers=none,frame=none,nolol=true]
+  0s -> HKDF-Extract = Master Secret
+\end{lstlisting}
+%
+\lstinputlisting[
+  aboveskip=0pt,
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    5190-5197,
+    5202-5205
+  }
+]{listings/rfc8446.txt}
+
+\caption[Key derivation process]{
+  Key derivation process, showing application of functions \HKDFExtract\ and \DeriveSecret\
+  to derive working keys. Function \HKDFExtract\ is shown inputting salt from 
+  the top and secrets from the left, and outputs to the bottom, where the output's name 
+  is shown to the right. Moreover, function \DeriveSecret\ is shown inputting secrets from the 
+  incoming arrow and the remaining inputs appear inline, and some outputs are named below 
+  the function's application (e.g., \TLSEarlySecret\ is input as the secret to generate
+  \textrm{client\_early\_traffic\_secret}) and others serve as salt for subsequent 
+  applications of the former (e.g., \TLSEarlySecret\ is input as the secret to 
+  generate salt for \TLSHandshakeSecret). Output \TLSbinderKey\ is derived
+  by application of function \DeriveSecret\ to 
+  $``\textrm{ext binder}" \mid ``\textrm{res binder}"$ which denotes either 
+  ``\textrm{ext binder}'' or ``\textrm{res binder}.'' The former is used for external 
+  PSKs (those established independently of TLS) and the latter is used for resumption 
+  PSKs (those established by \NewSessionTicket\ messages, using the resumption master 
+  secret of a previous handshake), hence, one type of PSK cannot be substituted for the 
+  other.\\
+  \emph{Source: This figure is excerpted from RFC~8446.}
+}
+\label{fig:keyDerivation}
+\end{figure}
+
+\begin{tcolorbox}
+Function \HKDFExtract\ is implemented by class \code{HKDF} (Listing~\ref{lst:HKDF})
+and function \DeriveSecret\ is implemented by class \code{SSL\-Secret\-Derivation} 
+(Listing~\ref{lst:SSLSecretDerivation} \&~\ref{lst:SSLSecretDerivationB}).
+\ifImplNotes
+  \textcolor{red}{Note: Implementation of function \DeriveSecret\ 
+  is reliant on the implementation of \HKDFExpand, 
+  which we haven't introduced yet (beyond a footnote reference), since a more 
+  direct definition of function \DeriveSecret\ suffices for this section
+  (as per the footnote). This doesn't seem worth mentioning.}
+\fi
+Application of the former %function 
+is dependent on the negotiated pre-shared 
+key to derive \TLSEarlySecret, which is computed by static method 
+\code{Server\-Hello.set\-Up\-Psk\-KD} (Listing~\ref{lst:setUpPskKD}), except
+for (EC)DHE-only key exchange, which derives $\TLSEarlySecret$ as $\HKDFExtract(\zeros,\zeros)$
+and is computed by class \code{DH\-Key\-Exchange.DHEKA\-Generator.DHEKA\-Key\-Derivation} or
+class \code{ECDH\-Key\-Exchange.ECDHEKA\-Key\-Derivation}, which also compute 
+\TLSHandshakeSecret. (PSK-only key exchange is unsupported and \TLSHandshakeSecret\ 
+is only computed with an (EC)DHE key.) Those classes
+are identical up to constructor names, strings \code{"DiffieHellman"}
+and \code{"ECDH"}, and whitespace. (Refactoring has replaced those 
+classes with \code{KAKeyDerivation} in JDK-13.) So, for brevity, we only present the 
+former class (Listing~\ref{lst:DHEKAKeyDerivation}).
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    46-49,
+    61-61,
+    64-67,
+    86-95,
+    114-120,
+    185-185
+  },
+  label=lst:HKDF,
+  caption={[\code{HKDF} implements function \HKDFExtract]
+    Class \code{HKDF} defines method \code{extract} to implement 
+    function \HKDFExtract\ (RFC~5869), 
+    over salt values of type \code{SecretKey} (Lines~86--95) and 
+    \code{byte[]} (Lines~114--120), using a \HMACHash\ function 
+    derived from the negotiated hash function (Lines~64--65), 
+    where \code{JsseJce.getMac(hmacAlg)} computes \code{Mac.getInstance(hmacAlg)}
+    or \code{Mac.getInstance(hmacAlg, cryptoProvider)}, depending 
+    on whether \code{sun.security.ssl.SunJSSE.cryptoProvider} is 
+    null.
+    Both implementations allow the 
+    salt to be \code{null} and will instantiate salt as a zero-filled 
+    byte array of the same length as \HashLength\ (Lines~88--90 \& 116--118). 
+    An HMAC is initialised with the salt as a key (Line~91) and a secret 
+    as the message (Line~93), the resulting HMAC is returned as 
+    a key of type \code{javax.crypto.spec.SecretKeySpec}.
+}]{listings/HKDF.java}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    36-36,
+    63-63,
+    %64-64, %hkdfAlg
+    65-67,
+    69-73,
+    %74-75, %init hkdfAlg (constructor)
+    76-78,
+    85-96,
+    101-114
+%    116-129,
+  },
+  label=lst:SSLSecretDerivation,
+  caption={[\code{SSLSecretDerivation} implements function \DeriveSecret]
+    Class \code{SSLSecretDerivation} implements function \DeriveSecret. The 
+    class defines a constructor (Lines~69--78) that instantiates fields
+    \code{context}, \code{transcriptHash} and \code{secret} 
+    with data including the transcript hash, the hash of the corresponding digest 
+    and a secret, respectively. Method \code{deriveKey} (Lines~85--114) is 
+    instantiated with a string that references a label and returns an HMAC computed 
+    by application of method \code{HKDF.expand} (Line~109) to inputs including 
+    \TLSHKDFLabelExt, which is computed (Lines~105--106) over the 
+    negotiated hash function's output length, the label prepended with 
+    $``\textrm{tls13\textvisiblespace}"$, and a hash of 
+    either the transcript's digest (when the resulting output will be used as a secret)
+    or the empty digest (when the resulting output will be used as salt, i.e., when 
+    \code{ks == SecretSchedule.TlsSaltSecret}), using static method 
+    \code{SSLSecretDerivation.createHkdfInfo}  to handle concatenation.
+    \ifImplNotes
+    \textcolor{blue}{\code{SSLBasicKeyDerivation.createHkdfInfo} can be dropped in 
+    favour of \code{SSLSecretDerivation.createHkdfInfo} (noting a slight
+    difference regarding runtime exceptions). As can 
+    \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation.createHkdfInfo}
+    (noting the need to supply 0x00 as the context).}
+    \textcolor{red}{Reported to security-dev@openjdk.java.net on 27 May 2020
+    (\url{https://mail.openjdk.java.net/pipermail/security-dev/2020-May/021928.html}), 
+    bug report added (\url{https://bugs.openjdk.java.net/browse/JDK-8245983})}
+    \fi
+}]{listings/SSLSecretDerivation.java}
+
+
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    132-151,
+    152-152    
+  },
+  label=lst:SSLSecretDerivationB,
+  caption={[\code{SSLSecretDerivation.SecretSchedule} implements function \DeriveSecret\ (cont.)]
+    Enum \code{SSLSecretDerivation.SecretSchedule} (omitted from Listing~\ref{lst:SSLSecretDerivation})
+    maps strings to labels used by function \DeriveSecret, and prepends labels with 
+    $``\textrm{tls13\textvisiblespace}"$.
+}]{listings/SSLSecretDerivation.java}
+
+\begin{comment}
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    116-130    
+  },
+  label=lst:SSLSecretDerivationB,
+  caption={[Class \code{SSLSecretDerivation} implements function \ExpandLabel]
+    Class \code{SSLSecretDerivation} (omitted from Listing~\ref{lst:SSLSecretDerivationB})
+    implements function \ExpandLabel...
+}]{listings/SSLSecretDerivation.java}
+\end{comment}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    1152-1153,
+    1159-1170
+  },
+  label=lst:setUpPskKD,
+  caption={[\code{ServerHello.setUpPskKD} derives \TLSEarlySecret\ over a pre-shared key]
+    Static method \code{ServerHello.setUpPskKD} (omitted from Listings~\ref{lst:T13ServerHelloProducer}
+    \&~\ref{lst:T13ServerHelloConsumer}) derives \TLSEarlySecret\ over a negotiated 
+    pre-shared key. 
+}]{listings/ServerHello.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    449-453,
+    %454-463, %constructor
+    464-465,    
+    469-469,
+    471-471,
+    499-532
+  },
+  label=lst:DHEKAKeyDerivation,
+  caption={[\code{DHKeyExchange.DHEKAGenerator.DHEKAKeyDerivation} derives keys]
+  Class \code{DHKeyExchange.DHEKAGenerator.DHEKAKeyDerivation} defines method \code{t13DeriveKey}
+  to derive the negotiated key (Lines~502--506); compute \TLSEarlySecret, for (EC)-DHE-only
+  key exchange (Lines~511--520), i.e., when production or consumption of a \ServerHello\ 
+  message did not call method \code{ServerHello.setUpPskKD}, which instantiates
+  \code{context.handshakeKeyDerivation}; applies \DeriveSecret\ to \TLSEarlySecret\
+  and label ``\textrm{derived}'' (Line~523); and uses the resulting output as salt when 
+  applying \HKDFExtract\ to the negotiated key (Line~526), which produces 
+  \TLSHandshakeSecret.
+}]{listings/DHKeyExchange.java}
+
+
+\subsubsection{Traffic keys}\label{sec:hkdf:trafficKeys}
+
+Traffic keys are derived from traffic secrets listed in Table~\ref{table:secrets}, using 
+function \HKDFExpandLabel, defined such that
+%
+\begin{multline*}
+  \HKDFExpandLabel(\TLSHKDFSecret, \TLSHKDFLabel, \TLSContext, \TLSHKDFLength) \\
+    = \HKDFExpand(\TLSHKDFSecret, \TLSHKDFLabelExt, \TLSHKDFLength),
+\end{multline*}
+%
+where $\TLSHKDFLabelExt = \TLSHKDFLength \parallel ``\textrm{tls13\textvisiblespace}" \parallel \TLSHKDFLabel \parallel \TLSContext$
+and function \HKDFExpand\ is defined by RFC 5869 such that
+$
+  \HKDFExpand(\TLSHKDFSecret,\allowbreak \TLSHKDFExpLabel,\allowbreak \TLSHKDFLength)
+$
+outputs the first \TLSHKDFLength-bytes of $T_1 \parallel \dots \parallel T_n$, where
+$n = \lceil \frac{\TLSHKDFLength}{\HashLength} \rceil$ and 
+%
+\begin{align*}
+  T_0 &= ``" \\
+  T_1 &= \HMACHash(\TLSHKDFSecret, T_0 \parallel \TLSHKDFExpLabel \parallel 0\textrm{x}01 ) \\
+  T_2 &= \HMACHash(\TLSHKDFSecret, T_1 \parallel \TLSHKDFExpLabel \parallel 0\textrm{x}02 ) \\
+  &\vdots
+\end{align*}
+
+\noindent
+Function \HKDFExpandLabel\ may input \TLSContext\ as the null ASCII character 0x00, denoted ``''.
+
+
+\begin{tcolorbox}
+Function \HKDFExpand\ is implemented by class \code{HKDF} (Listing~\ref{lst:HKDFB}) and
+traffic keys are derived by class \code{SSLTrafficKeyDerivation} (Listing~\ref{lst:SSLTrafficKeyDerivation}). 
+\ifImplNotes
+\textcolor{red}{Note: Class \code{SSLTrafficKeyDerivation} shares similarities with 
+\code{SSLSecretDerivation} and some refactoring may allow elimination of unnecessary code.}
+\fi
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    137-139,
+    150-150,
+    %151-153
+    154-159,
+    162-184
+  },
+  label=lst:HKDFB,
+  caption={[\code{HKDF} implements function \HKDFExpand]
+    Class \code{HKDF} (omitted from Listing~\ref{lst:HKDF}) 
+    defines method \code{expand} to implement function \HKDFExpand. 
+    A buffer \code{kdfOutput} of length 
+    $\HashLength\cdot\lceil \frac{\TLSHKDFLength}{\HashLength} \rceil$ is initialised
+    (Lines~139 \& 154--155) and an HMAC is initialised with the input secret as a key (Line~150).
+    The for-loop computes $T_1,T_2,...$ values as HMACs over messages that concatenate the 
+    previous round's output (which is the empty string during the first round), label
+    \code{info}, and the round number (Lines~167--170). Those values are stored in 
+    buffer \code{kdfOutput} (Line~171), which is returned as a key of type 
+    \code{javax.crypto.spec.SecretKeySpec} after truncating to length \code{outLen}
+    (Line~183).
+%
+    \ifImplNotes\textcolor{red}{Lines~151-153 are omitted. As far as I can tell, info is never null}\fi
+ %   
+}]{listings/HKDF.java}
+
+\lstinputlisting[
+  float=tbp,
+  %widthgobble=0*0,
+  linerange={
+    %43-43,   %%Outer class (SSLTrafficKeyDerivation)
+    %47-47,
+    %49-50,
+    %52-56,
+    %77-80,
+    %121-122,
+    %128-133,
+    135-137,
+    139-143,
+    146-160,
+%    162-176,
+    177-177,
+    179-202
+  },
+  label=lst:SSLTrafficKeyDerivation,
+  caption={[\code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation} derives traffic keys]
+  Class \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation} derives traffic keys. 
+  Method \code{deriveKey} is instantiated with a string that references a label and returns
+  an HMAC computed by application of method \code{HKDR.expand} (Lines~153--155) to inputs including 
+  \TLSHKDFLabelExt, which is computed (Lines~151--152) over the negotiated hash function's output length,
+  the label prepended with $``\textrm{tls13\textvisiblespace}"$, and null ASCII character 0x00, using 
+  static method \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation.createHkdfInfo}
+  to handle concatenation and to introduce 0x00.
+}]{listings/SSLTrafficKeyDerivation.java}
+
+
+\noindent
+Returning to key derivation, we derive the following traffic keys:
+%
+\begin{align*}
+  \TLSwriteKey &= \HKDFExpandLabel(\TLSField{[secret]}, ``key", ``", key\_length) \\
+  \TLSwriteIV  &= \HKDFExpandLabel(\TLSField{[secret]}, ``iv", ``", iv\_length)
+\end{align*}
+%
+where \TLSField{[sender]} is either \TLSField{client} or \TLSField{server}, and
+\TLSField{[secret]} is taken from the secrets listed in Table~\ref{table:secrets}.
+
+\begin{tcolorbox}
+Server- and client-side handshake-traffic key derivation is implemented by classes 
+\code{Server\-Hello.T13\-Server\-Hello\-Producer} %(Listing~\ref{lst:T13ServerHelloProducerC})
+and \code{Server\-Hello.T13\-Server\-Hello\-Consumer}, %(Listing~\ref{lst:T13ServerHelloConsumerB}), 
+respectively.
+The former class defines method \code{produce} to write a \ServerHello\ message to an 
+output stream (Listings~\ref{lst:T13ServerHelloProducer} 
+\&~\ref{lst:T13ServerHelloProducerB}), and that method derives handshake-traffic 
+keys immediately after writing the \ServerHello\ message; the keys are used to encrypt subsequent 
+outgoing handshake messages (including an \EncryptedExtensions\ message) and to decrypt subsequent
+incoming handshake messages. Similarly, the latter class defines 
+method \code{consume} to read a \ServerHello\ message from an input buffer 
+(Listing~\ref{lst:T13ServerHelloConsumer}), and that method derives handshake-traffic 
+keys immediately before reading an \EncryptedExtensions\ message (and prior to reading 
+further extensions, including \Certificate\ and \CertificateVerify\ messages 
+for (EC)DHE-only key exchange, and a \Finished\ message); the keys are used to decrypt subsequent
+incoming handshake messages, including that \EncryptedExtensions\ message, and to encrypt subsequent
+outgoing handshake messages.
+The implementations 
+are identical up to contexts (namely, \code{Server\-Handshake\-Context} and 
+\code{Client\-Handshake\-Context}, that share parent \code{Handshake\-Context}), 
+labels 
+%hack for visible space:
+{\code{s}\textvisiblespace{}\code{hs}\textvisiblespace{}\code{traffic}} and 
+{\code{c}\textvisiblespace{}\code{hs}\textvisiblespace{}\code{traffic}}
+(which are instantiated by enum \code{SSL\-Secret\-Derivation.Secret\-Schedule}
+using strings \code{TlsServerHandshakeTrafficSecret} and 
+\code{TlsClientHandshakeTrafficSecret}, respectively), treatment of null
+in tricks to make the compiler happy (cf. \code{return null;} and \code{return;}
+in catch-branches), $\alpha$-renaming of one variable, and whitespace
+(and some obsolete, commented-out code). 
+(Refactoring could eliminate unnecessary code.\footnote{%
+  The OpenJDK team are aware of refactoring opportunities 
+  (\url{https://mail.openjdk.java.net/pipermail/security-dev/2020-May/021928.html})
+  and are tracking changes (\url{https://bugs.openjdk.java.net/browse/JDK-8245983}).
+}) 
+So, for brevity, we only present server-side handshake-traffic key derivation 
+(Listings~\ref{lst:T13ServerHelloProducerC} \&~\ref{lst:T13ServerHelloProducerD}). 
+%
+%% The following has been moved to the previous section, where \TLSEarlySecret\
+%% is introduced.
+%
+\begin{comment}
+Derivation is dependent on \TLSEarlySecret\ and 
+the negotiated (EC)DHE key (PSK-only key exchange is unsupported), 
+which are computed by classes \code{DHKeyExchange.DHEKAGenerator.DHEKAKeyDerivation} and
+\code{ECDHKeyExchange.ECDHEKAKeyDerivation}. Those classes
+are identical up to constructor names, strings \code{"DiffieHellman"}
+and \code{"ECDH"}, and whitespace. (Refactoring could elimate
+unnecessary code.) So, for brevity, we only present the 
+former class (Listing~\ref{lst:DHEKAKeyDerivation}).
+\end{comment}
+
+\end{tcolorbox}
+
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    %587-587,
+    588-589,
+    591-592,
+    593-598, %error handling for shc.handshakeKeyExchange == null 
+    600-605,  
+    613-615
+  },
+  label=lst:T13ServerHelloProducerC,
+  caption={[\code{ServerHello.T13ServerHelloProducer} deriving keys]
+  Class \code{ServerHello.T13ServerHelloProducer} (omitted from 
+  Listing~\ref{lst:T13ServerHelloProducerB}) updates the transcript
+  hash's digest to include all handshake protocol messages (Line~589), 
+  derives an (EC)DHE key (Line~600), and establishes \TLSHandshakeSecret\
+  (Lines~601--602). Variable \code{shc.handshakeKeyExchange} is assigned 
+  by class \code{KeyShareExtension} (PSK-only key exchange is unsupported, 
+    %%https://bugs.openjdk.java.net/browse/JDK-8049402
+    %%https://bugs.openjdk.java.net/browse/JDK-8145252
+    %%https://bugs.openjdk.java.net/browse/JDK-8209392
+  hence, \code{ke} is not null) as an instance of class \code{SSLKeyExchange}
+  parameterised with \code{SSLKeyExchange.T13KeyAgreement} (of type \code{SSLKeyAgreement})
+  and \code{ke.createKeyDerivation(shc)} returns either 
+    \code{ECDHKeyExchange.ecdheKAGenerator.createKeyDerivation(shc)} or
+    \code{DHKeyExchange.kaGenerator.createKeyDerivation(shc)}, i.e., 
+  an (EC)DHE key (Line~600). The class also initialises variables \code{kdg}
+  (Line~604--605) and \code{kd} (Lines 614--615) which will be used to 
+  derive traffic secrets and the corresponding traffic keys, respectively.
+  The former is an instance of class \code{SSLTrafficKeyDerivation} that 
+  overrides method \code{createKeyDerivation} such that it returns 
+  an instance of class \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation}.
+}]{listings/ServerHello.java}%
+
+
+\begin{comment}
+\marginpar{To aid readers of printed versions (and perhaps some digital readers), Listing~\ref{lst:T13ServerHelloProducerC} should appear on an even page and Listing~\ref{lst:T13ServerHelloConsumerB} should appear on the following (odd) page} 
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    1242-1242,
+    1249-1254,
+    1262-1264,
+    1266-1328
+  },
+  label=lst:T13ServerHelloConsumerB,
+  caption={[\code{ServerHello.T13ServerHelloConsumer} derives keys]
+    Class \code{ServerHello.T13ServerHelloConsumer} (omitted from 
+  Listing~\ref{lst:T13ServerHelloConsumer})
+}]{listings/ServerHello.java}%
+\end{comment}
+
+
+\lstinputlisting[
+  float=tbp,
+  linerange={
+    617-636,
+    640-664,
+    668-675
+  },
+  label=lst:T13ServerHelloProducerD,
+  caption={[\code{ServerHello.T13ServerHelloProducer} deriving keys (cont.)]
+  Class \code{ServerHello.T13ServerHelloProducer} (continued from 
+  Listing~\ref{lst:T13ServerHelloProducerC}) derives traffic secret
+  \TLSclientHandshakeTrafficSecret\ (Lines~618--619), constructs an instance
+  of \code{SSLTrafficKeyDerivation.T13TrafficKeyDerivation} from that secret
+  (Lines~620--621), and uses that instance to derive the corresponding traffic 
+  keys \TLSField{client\_write\_key} (Lines~622--623) and
+  \TLSField{client\_write\_iv} (Lines~624--625), which will be used to decrypt (and read)
+  incoming client traffic (Lines~626--643). Similarly, traffic secret   
+  \TLSserverHandshakeTrafficSecret\ is derived (Lines~646--647), along with 
+  traffic keys \TLSField{server\_write\_key} (Lines~650--651) and
+  \TLSField{server\_write\_iv} (Lines~652--653), used to encrypt (and write) outgoing 
+  traffic (Lines~654--672).
+}]{listings/ServerHello.java}%
+
+
+Traffic secrets \TLSclientHandshakeTrafficSecret\ and \TLSserverHandshakeTrafficSecret\
+are used to derive handshake-traffic keys that protect handshake extensions (\S\ref{sec:EE} 
+\&~\ref{sec:handshakeAuth}). After those extensions are processed,
+application-traffic keys to protect application data can be derived (\S\ref{sec:FIN}).

@@ -1,0 +1,195 @@
+\section{Extensions}
+\label{sec:extensions}
+
+Extensions listed by an endpoint are generally 
+followed by a corresponding extension from their peer. 
+Corresponding extensions must not be sent without solicitation, and  
+endpoints must abort with an \TLSunsupportedExtension\ alert upon 
+receipt of such unsolicited extensions. For instance, a \ClientHello\ message listing 
+extension \TLSsupportedGroups\ is followed by a \ServerHello\ message listing 
+the same extension, whereas a \ServerHello\ message must not list that 
+extension in response to a \ClientHello\ message that does not and a client
+should abort in such cases. 
+
+Table~\ref{table:extensions} formally specifies which extensions can be listed 
+in the \TLSextensions\ field of handshake protocol messages. Endpoints 
+must abort with an \TLSillegalParameter\ alert if an extension is received
+in a handshake protocol message for which it is not specified. Support for 
+the following extensions is mandatory (unless an implementation explicitly opts out): 
+%
+\TLScookie,
+\TLSkeyShare,
+\TLSserverName,
+\TLSsignatureAlgorithms,
+\TLSsignatureAlgorithmsCert,
+\TLSsupportedGroups, and
+\TLSsupportedVersions.
+%
+A client requesting a non-mandatory extension may abort if the extension is
+not supported by the server. A server may require \ClientHello\ messages
+to include extension \TLSserverName\ and should abort with an \TLSmissingExtension\ 
+alert if the extension is missing. 
+
+
+\begin{table}[H]
+\caption{Extensions and the handshake protocol messages in which they
+  may appear, where such messages are abbreviated as follows:
+  CH (\ClientHello), SH (\ServerHello), EE (\EncryptedExtensions), 
+  CT (\Certificate), CR (\CertificateRequest), NST (\NewSessionTicket), 
+  and HRR (\HelloRetryRequest).}
+\label{table:extensions}
+\centering
+\begin{tabular}{l|l|l}
+Extension                                 &RFC & Handshake message \\ \hline
+\TLSapplicationLayerProtocolNegotiation   &7301&      CH, EE    \\
+\TLScertificateAuthorities                &8446&      CH, CR    \\
+\TLSclientCertificateType                 &7250&      CH, EE    \\
+\TLScookie                                &8446&     CH, HRR    \\
+\TLSearlyData                             &8446& CH, EE, NST    \\
+\TLSheartbeat                             &6520&      CH, EE    \\
+\TLSkeyShare                              &8446& CH, SH, HRR    \\
+\TLSmaxFragmentLength                     &6066&      CH, EE    \\
+\TLSoidFilters                            &8446&          CR    \\
+\TLSpadding                               &7685&          CH    \\
+\TLSpostHandshakeAuth                     &8446&          CH    \\
+\TLSpsk                                   &8446&      CH, SH    \\
+\TLSpskModes                              &8446&          CH    \\
+\TLSserverCertificateType                 &7250&      CH, EE    \\
+\TLSserverName                            &6066&      CH, EE    \\
+\TLSsignatureAlgorithms                   &8446&      CH, CR    \\
+\TLSsignatureAlgorithmsCert               &8446&      CH, CR    \\
+\TLSsignedCertificateTimestamp            &6962&  CH, CR, CT    \\
+\TLSstatusRequest                         &6066&  CH, CR, CT    \\
+\TLSsupportedGroups                       &7919&      CH, EE    \\
+\TLSsupportedVersions                     &8446& CH, SH, HRR    \\
+\TLSuseSrtp                               &5764&      CH, EE    
+\end{tabular}
+\end{table}
+
+
+When designing new extensions, the following considerations should 
+be taken into account:
+%
+First, a server that does not support a client-requested extension 
+\ifSpecNotes
+  \textcolor{red}{the spec states client requested feature, but my 
+  narrowing seems correct}
+\fi
+  should indicate that the extension is unsupported by inclusion 
+  of a suitable extension in their response, rather than aborting.
+  By comparison, a server should abort when a client-supplied
+  extension is erroneous. 
+%
+Secondly, prior to authentication, active attackers can remove and 
+  inject messages, hence, they can modify handshake messages. 
+  Since an HMAC is computed over the entire handshake, such 
+  modifications can typically be detected and endpoints can 
+  abort. However, to quote RFC 8446, ``extreme care is needed 
+  when the extension changes the meaning of messages sent in the 
+  handshake phase.'' Thus, extensions should be designed to 
+  prevent an active adversary from unduly influencing parameter 
+  negotiation, i.e., endpoints should negotiate their preferred
+  parameters, even in the presence of an adversary.
+%
+In addition, any interactions with early data must be defined.
+
+
+
+
+\begin{tcolorbox}
+Extensions are enumerated and instantiated by enum \code{SSLExtension} (Listing~\ref{lst:SSLExtension}), 
+and class \code{SSLExtensions} (Listings~\ref{lst:SSLExtensions}--\ref{lst:SSLExtensionsB}) represents
+a list of extensions.
+\end{tcolorbox}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    38-38,%class def
+    489-505,%constructor
+    529-530,532-532,537-537,%produce
+    539-540,542-542,547-547,%consumeOnLoad
+    549-550,552-552,557-557,%consumeOnTrade
+    685-685%closing brace
+  },
+  label=lst:SSLExtension,
+  caption={[\code{SSLExtension} enumerates and instantiates extensions]
+  \code{SSLExtension} enumerates and instantiates extensions. 
+  Each instantiation defines a hexadecimal value (Line~495) and a name (Line~497). 
+  Moreover, they define variable \code{networkProducer} of (interface) type 
+  \code{HandshakeProducer} which is instantiated by a constant 
+  \code{ThisNameExtension.messageNetworkProducer}, where \code{ThisName} corresponds 
+  to extension \TLSField{this\_name} and \code{message} is an abbreviation of
+  the message type, e.g., \code{ch} abbreviates \ClientHello. For instance, constants 
+  \code{SupportedVersionsExtension.chNetworkProducer} 
+  and \code{PreSharedKeyExtension.chNetworkProducer} are used for extensions
+  \TLSsupportedVersions\ and \TLSpsk, respectively, for \ClientHello\ messages. 
+  Variable \code{networkProducer} is used by method \code{produce} to instantiate extensions
+  (Lines~529--537).
+  Variables \code{onLoadConsumer} and \code{onTradeConsumer} of (interface) type 
+  \code{ExtensionConsumer} and \code{HandshakeConsumer}, respectively, are defined 
+  similarly. The former is used by method \code{consumeOnLoad} to consume extensions 
+  (Lines~539--547) and the latter is used by method \code{consumeOnTrade} to 
+  update the active context to include extensions \ifImplNotes\textcolor{red}{accurate?}\fi
+  (Lines~549--557).
+  Hence, enum \code{SSLExtension} is reliant
+  on classes implementing interfaces \code{HandshakeConsumer}, \code{HandshakeProducer}, and 
+  \code{ExtensionConsumer}, e.g., inner-classes of class \code{PreSharedKeyExtension}.
+}]{listings/SSLExtension.java}
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    39-41,
+    47-49,
+    51-51,
+    53-61,
+    77-82,
+    91-93,
+    98-100,
+    102-104,
+    114-119,
+    121-123,
+    207-208,
+    209-209,
+    228-230,
+    233-234,
+    238-240
+  },
+  label=lst:SSLExtensions,
+  caption={[\code{SSLExtensions} produces and consumes extensions]
+  Class \code{SSLExtensions} defines a map of extensions and their 
+  associated data (Line~41). That map can be instantiated by method \code{produce} 
+  (Lines~207--240) or during construction from an input stream (Lines~53-123).
+}]{listings/SSLExtensions.java}
+
+
+\lstinputlisting[
+  float=tbp,
+  widthgobble=0*0,
+  linerange={
+    132-134,
+    163-164,
+    169-170,
+    175-177,
+    197-197,
+    201-202,    
+    293-307,
+    362-362
+  },
+  label=lst:SSLExtensionsB,
+  caption={[\code{SSLExtensions}  produces and consumes extensions (cont.)]
+  Class \code{SSLExtensions} (continued from 
+  Listing~\ref{lst:SSLExtensions}) defines method \code{consumeOnLoad} to 
+  consume received extensions (Lines~132--170), using method 
+  \code{SSLExtension.consumeOnLoad} (Listing~\ref{lst:SSLExtension});
+  \code{consumeOnTrade} to update the active context to include extensions
+  \ifImplNotes\textcolor{red}{accurate?}\fi
+  (Lines~175--202), using method \code{SSLExtension.consumeOnTrade} (Listing~\ref{lst:SSLExtension});
+  and method \code{send} to write extensions and associated data to an output stream 
+  (Lines~293--307).
+}]{listings/SSLExtensions.java}
+
+

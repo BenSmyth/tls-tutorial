@@ -1,0 +1,114 @@
+\subsubsection{\NewSessionTicket}\label{sec:NST}
+
+After receiving a client's \Finished\ message, a server can initiate establishment 
+of a new pre-shared key, which will be derived from the resumption master secret
+\TLSresumptionMasterSecret\ (Figure~\ref{fig:keyDerivation}). 
+Such a pre-shared key may be used to establish subsequent channels. Establishment 
+is initiated with a \NewSessionTicket\ message, comprising the following fields:
+
+\begin{description}
+\item \TLSticketLifetime: A 32-bit unsigned integer indicating the lifetime 
+      in seconds %(from the time of issuance) 
+      of the pre-shared key, which must not exceed seven days (604800 seconds).
+
+\item \TLSticketAgeAdd: A 32-bit nonce to obscure the lifetime.
+
+\item \TLSticketNonce: A nonce for key derivation.
+
+\item \TLSticket: A key identifier. 
+
+\item \TLSextensions: A list of extensions, currently limited to extension \TLSearlyData, 
+  which indicates that early data is permitted and defines a maximum amount 
+  of early data.
+
+\end{description}
+
+\begin{sloppypar}
+\noindent
+The associated pre-shared key is computed as follows:
+\[
+  \HKDFExpandLabel(\TLSresumptionMasterSecret, ``resumption", \TLSticketNonce, \HashLength),
+\]
+Since the pre-shared key is computed from nonce \TLSticketNonce, it follows 
+that each \NewSessionTicket\ message creates a distinct pre-shared key.
+\end{sloppypar}
+
+A \NewSessionTicket\ is consumed by the client, which derives and stores 
+the pre-shared key along with associated data (including the negotiated 
+hash function). That data may be stored by client and used in 
+extension \TLSpsk\ of subsequent \ClientHello\ messages.
+Data must not be used 
+\ifSpecNotes
+\textcolor{red}{the spec refers to storage rather than use}
+\fi
+longer than seven days or beyond its lifetime (specified by \TLSticketLifetime), 
+whichever is shorter, and endpoints may retire data early.
+
+
+   The sole extension currently defined for NewSessionTicket is
+   "early_data", indicating that the ticket may be used to send 0-RTT
+   data (Section 4.2.10).  It contains the following value:
+
+   max_early_data_size:  The maximum amount of 0-RTT data that the
+      client is allowed to send when using this ticket, in bytes.  Only
+      Application Data payload (i.e., plaintext but not padding or the
+      inner content type byte) is counted.  A server receiving more than
+      max_early_data_size bytes of 0-RTT data SHOULD terminate the
+      connection with an "unexpected_message" alert.  Note that servers
+      that reject early data due to lack of cryptographic material will
+      be unable to differentiate padding from content, so clients
+      SHOULD NOT depend on being able to send large quantities of
+      padding in early data records.
+
+
+
+
+\begin{tcolorbox}
+\NewSessionTicket\ messages are implemented, produced, and consumed by inner-classes of 
+class \code{NewSessionTicket}. Those classes define the five fields of a \NewSessionTicket\ 
+message and constructors to instantiate them from parameters or an input buffer, moreover,
+they define methods to write such a message to an output stream and to read such a message 
+from an input buffer.
+\end{tcolorbox}
+
+\subsubsection*{Extension \TLSpsk}
+
+The pre-shared key identifiers listed by extension \TLSpsk\ (\S\ref{sec:CH}) may include 
+identifiers established by \NewSessionTicket\ messages, identifiers established %out-of-band,
+externally,
+or both. Each identifier is coupled with an obfuscated age, which is derived by addition of 
+\NewSessionTicket.\TLSticketLifetime\ and \NewSessionTicket.\TLSticketAgeAdd\ (modulo $2^{32}$)
+for identifiers established by \NewSessionTicket\ messages, and $0$ for identifiers established
+%out-of-band. 
+externally.
+Moreover, extension \TLSpsk\ associates each identifier with a PSK binder, 
+which binds the pre-shared key with the current handshake, and to the session in which the 
+pre-shared key was generated for pre-shared keys established by \NewSessionTicket\ messages.
+The PSK binder is computed as an HMAC over a partial transcript, which excludes binders, 
+namely,
+\[
+  \HMACHash(\TLSbinderKey,\TranscriptHash(\Truncate(CH)))
+\]
+for transcripts which include only a single \ClientHello\ message $CH$, and
+\[
+  \HMACHash(\TLSbinderKey,\TranscriptHash(CH,HRR,\Truncate(CH')))
+\]
+for transcripts that include an initial \ClientHello\ message $CH$, followed 
+by a \HelloRetryRequest\ message $HRR$ and a subsequent \ClientHello\ message $CH'$,
+where function \Truncate\ removes binders. 
+%
+When consuming a \ClientHello\ message that includes extension \TLSpsk, a server recomputes 
+the HMAC for their selected pre-shared key and checks that it matches the corresponding binder 
+listed by the extension, aborting if the check fails or the binder is not present.
+
+\begin{tcolorbox}
+Extension \TLSpsk\ is implemented, produced, and consumed by inner-classes of 
+class \code{PreSharedKeyExtension}. Those classes define fields of extension \TLSpsk\ 
+ and constructors to instantiate them from parameters or an input buffer, moreover,
+they define methods to write such an extension to an output stream and to read such an extension 
+from an input buffer, the latter is reliant on static methods \code{checkBinder}, 
+\code{computeBinder} and \code{deriveBinderKey} to recompute HMACs for pre-shared keys 
+and to check whether they match the corresponding binder listed by the extension.
+\end{tcolorbox}
+
+

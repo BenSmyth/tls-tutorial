@@ -1,0 +1,24 @@
+\section{Alert protocol}
+\label{sec:alerts}
+
+TLS defines closure and error alerts, comprising a description field and a legacy 
+severity-level field (which, in TLS 1.3, can be inferred from the alert type). 
+%
+Closure alerts indicate orderly termination of the established channel (in one direction 
+only), and are necessary to avoid truncation attacks. Such closure alerts notify the 
+receiver that the sender will not send any more messages on the channel and any data sent
+after the alert must be ignored. (The channel must be closed in one direction only 
+to avoid truncating messages in the other direction. This requirement
+differs from prior versions of TLS, which required the receiver to discard pending 
+messages and immediately send a closure alert of their own, thereby truncating the
+pending messages.)
+%
+Error alerts indicate abortive closure and should be sent whenever an error 
+is encountered. Upon transmission or receipt of such an error alert, the established 
+channel must be closed immediately, without sending or receiving any further data.
+(The listings in this manuscript omit most error alert handling and processing for brevity.)
+%
+All alerts are encrypted (by the record protocol) after message \ServerHello\ has been 
+successfully consumed. 
+
+

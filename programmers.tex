@@ -1,0 +1,237 @@
+\section{Java Secure Socket Extension (JSSE)}\label{sec:JSSE}
+
+Java programmers need not concern themselves with the intricacies of TLS: They can 
+use the Java Secure Socket Extension (JSSE), which provides an abstract, high-level
+API to establish a TLS channel. Doing otherwise is outright dangerous! TLS 1.3 
+was developed over four years by a team of almost one hundred security experts 
+from more than forty institutions, including tech behemoths Amazon, Apple, Google, 
+IBM, and Microsoft. \ifPresentationNotes \textcolor{red}{Part of this is probably 
+better placed elsewhere.} \fi
+Their work involved iterating over the subtle 
+details to ensure that security objectives were achieved. JSSE provides OpenJDK's 
+implementation of TLS; using it simplifies development and reduces risk.
+We present toy applications that demonstrate the use of JSSE (Section~\ref{sec:monkeys})
+and then delve into JSSE itself (Section~\ref{sec:SunJSSE}).
+
+\subsection{Examples for code monkeys: Toy client and server}\label{sec:monkeys}
+
+\ifPresentationNotes
+\marginpar{``channel'' (throughout) is perhaps too academic}
+\fi
+
+JSSE trivialises the development of toy applications. For instance, the following code 
+snippet establishes a TLS socket:\footnote{%
+  Prepending the snippet with 
+    \code{System.setProperty("javax.net.debug", "ssl handshake verbose")}
+  prints additional information, which can be useful.}
+
+\lstinputlisting[
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    16-22
+  }
+]{code/JSSEClient.java}
+
+\noindent 
+The established TLS socket protects communication, for example, the following HTTP
+request and response is protected:
+
+\lstinputlisting[
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    24-39
+  }
+]{code/JSSEClient.java}
+
+\noindent
+JSSE uses a ``provider''-based architecture, whereby services (e.g., \code{SSLSocket} and \code{SSLSocketFactory})
+and implementations (e.g., \code{SSLSocketImpl} and \code{SSLSocketFactoryImpl}) are defined independently, 
+and are (typically) instantiated by factory methods (e.g., \code{SSLSocketFactory.getDefault()}). Hence, 
+programmers need not concern themselves with the inner-workings of implementations, such as those provided 
+by \emph{SunJSSE} (we will nonetheless take a brief look in Section~\ref{sec:SunJSSE}). 
+Let us now consider a toy server application, to compliment our (above) toy client.
+
+Our client uses the default client-side context, whereas our server cannot, because 
+server-side authentication is mandatory and a certification must be initialised, 
+hence, we start by initialising a suitable context:
+
+\lstinputlisting[
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    23-31
+  }
+]{code/JSSEServer.java}
+
+\noindent
+That context can be used to establish a TLS socket:
+
+\lstinputlisting[
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    33-41
+  }
+]{code/JSSEServer.java}
+
+\noindent
+Communication over the TLS socket is protected, for example, any incoming character is
+protected as is any subsequent response:
+
+\lstinputlisting[
+  numbers=none,
+  frame=none,
+  nolol=true,
+  linerange={
+    43-51
+  }
+]{code/JSSEServer.java}
+
+\noindent 
+Our client and server can communicate by assigning \code{InetAddress.getLocalHost()} 
+to variable \code{host} and \code{8443} to variable \code{port},\footnote{Unix systems
+  protect ports under 1024, hence, we use port 8443, rather than port 443.} 
+rather than \code{example.com} and \code{443}, respectively. The key 
+store necessary for this example can be constructed using \code{keytool} as follows:
+
+\begin{verbatim}
+bas $ keytool -genkey -keyalg RSA -keystore store
+Enter keystore password:  
+Re-enter new password: 
+What is your first and last name?
+  [Unknown]:  127.0.1.1
+What is the name of your organizational unit?
+  [Unknown]:   
+What is the name of your organization?
+  [Unknown]:  
+What is the name of your City or Locality?
+  [Unknown]:  
+What is the name of your State or Province?
+  [Unknown]:  
+What is the two-letter country code for this unit?
+  [Unknown]:  
+Is CN=127.0.1.1, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown correct?
+  [no]:  yes
+
+bas $
+\end{verbatim}
+
+
+\noindent
+where \code{InetAddress.getLocalHost()} is 127.0.1.1 and filename \code{store} can 
+be replaced with alternatives. Since the above key store is 
+self-signed, it must be added to the Java virtual machine's trust store, which can 
+be achieved by prepending client code with the following:
+\code{System.setProperty( "javax.net.ssl.trustStore", "store" ); System.setProperty( "javax.net.ssl.trustStorePassword", <<pwd>> )}.
+
+
+
+
+
+
+
+
+
+\subsection{SunJSSE provider for architects, researchers, and the curious}\label{sec:SunJSSE}
+
+Our toy client uses statement \code{SSLSocketFactory.getDefault().createSocket(host, port)} 
+to instantiate an instance of 
+\code{SSLSocketFactoryImpl} parameterised with an initial context, and uses that 
+context along with variables \code{host} and \code{port} to instantiate and return an 
+instance of \code{SSLSocketImpl}. Method \code{SSLSocketImpl.startHandshake()} proceeds as follows:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    377-377,
+    395-398,
+    401-403,
+    411-411
+  }
+]{listings/SSLSocketImpl.java}
+
+\noindent
+Line~395 indirectly calls method \code{ClientHello.kickstartProducer.produce} (\S\ref{sec:CH}) and processes 
+responses (Line~401--403) as follows:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    1060-1061,
+    1063-1067,
+    1077-1077,
+    1079-1080,
+    1148-1149,
+    1152-1153,
+    1170-1171
+  }
+]{listings/SSLSocketImpl.java}
+
+\noindent
+Hence, until a connection is negotiated (Lines 1064--1067), responses are processed by 
+method \code{SSLTransport.decode} (Line~1152--1153) as follows:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    101-105,
+    107-108,
+    145-149,
+    162-165,
+    %167-191,
+    %197-199,
+    200-204
+ }
+]{listings/SSLTransport.java}
+
+\noindent
+Line~108 parses a handshake (or an alert) record header and calls method 
+\code{SSLSocketInputRecord.decodeInputRecord}, providing the header as 
+input. That method parses and decodes the complete record, which is then 
+processed by method \code{TransportContext.dispatch} (Line~164).
+%
+Method \code{SSLSocketInputRecord.decodeInputRecord} proceeds as follows:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    204-210,
+    230-230,
+    232-246,
+    257-257,
+    259-259,
+    261-264,
+    280-280,
+    282-344,
+    346-353
+ }
+]{listings/SSLSocketInputRecord.java}
+
+\noindent
+Finally, method \code{TransportContext.dispatch} proceeds as follows:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    143-144,
+    149-149,
+    156-179,
+    191-192
+ }
+]{listings/TransportContext.java}
+
+\noindent
+Line~178 indirectly calls \code{HandshakeContext.dispatch} on variables
+\code{handshakeType} and \code{plaintext.fragment}, which calls the 
+relevant consumer and updates the handshake hash.

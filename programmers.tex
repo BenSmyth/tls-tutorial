@@ -1,6 +1,7 @@
 \section{Java Secure Socket Extension (JSSE)}\label{sec:JSSE}
 
-Java programmers need not concern themselves with the intricacies of TLS: They can 
+Java programmers need not concern themselves with the intricacies of TLS 
+nor OpenJDK's implementation: They can 
 use the Java Secure Socket Extension (JSSE), which provides an abstract, high-level
 API to establish a TLS channel. Doing otherwise is outright dangerous! TLS 1.3 
 was developed over four years by a team of almost one hundred security experts 
@@ -8,10 +9,12 @@ from more than forty institutions, including tech behemoths Amazon, Apple, Googl
 IBM, and Microsoft. \ifPresentationNotes \textcolor{red}{Part of this is probably 
 better placed elsewhere.} \fi
 Their work involved iterating over the subtle 
-details to ensure that security objectives were achieved. JSSE provides OpenJDK's 
-implementation of TLS; using it simplifies development and reduces risk.
-We present toy applications that demonstrate the use of JSSE (Section~\ref{sec:monkeys})
-and then delve into JSSE itself (Section~\ref{sec:SunJSSE}).
+details to ensure that security objectives were achieved. 
+JSSE abstracts away those subtleties to provide programmers with a high-level, 
+low-risk means to establish secure communication, without the complexities of underlying 
+OpenJDK algorithms.
+We present toy applications that demonstrate the use of JSSE (Section~\ref{sec:monkeys}), 
+before delving into the details (Section~\ref{sec:SunJSSE}).
 
 \subsection{Examples for code monkeys: Toy client and server}\label{sec:monkeys}
 
@@ -235,3 +238,18 @@ Finally, method \code{TransportContext.dispatch} proceeds as follows:
 Line~178 indirectly calls \code{HandshakeContext.dispatch} on variables
 \code{handshakeType} and \code{plaintext.fragment}, which calls the 
 relevant consumer and updates the handshake hash.
+
+
+
+
+
+%\subsection{Here be dragons: Hacking OpenJDK's TLS}
+
+%TLS is a subtle, complex beast which has proven rather difficult to secure.
+%JSSE strips away those subtleties to provide programmers with a high-level, 
+%low-risk means to establish secure communication: Programmers need not
+%expose themselves to the complexities of underlying OpenJDK algorithms, 
+%Doing otherwise poses a threat to user security. Nonetheless, hackers like 
+%to play. Proceed at your own risk. \emph{Hic sunt dracones}.
+
+

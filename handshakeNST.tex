@@ -27,7 +27,7 @@ is initiated with a \NewSessionTicket\ message, comprising the following fields:
 \noindent
 The associated pre-shared key is computed as follows:
 \[
-  \HKDFExpandLabel(\TLSresumptionMasterSecret, ``resumption", \TLSticketNonce, \HashLength),
+  \HKDFExpandLabel(\TLSresumptionMasterSecret, ``resumption", \TLSticketNonce, \HashLength).
 \]
 Since the pre-shared key is computed from nonce \TLSticketNonce, it follows 
 that each \NewSessionTicket\ message creates a distinct pre-shared key.

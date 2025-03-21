@@ -730,19 +730,83 @@ Our dummy listener is straightforward:
 (Subclasses add functionality.)
 
 
-\lstset{widthgobble=1*1}
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsubsection{Simplified non-blocking I/O for the masses}
 
-\textcolor{red}{Give exemplar client \& server here}
+\code{SSLEngine} operates on byte streams, unlike \code{SSLSocket} (which uses sockets), 
+programmers are responsible for transmission of streams; extending \code{SSLEngineHost}, 
+a listener can be added to transport outbound TLS records:
 
-\subsubsection*{Client-side}
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    9-18
+  }
+]{code/TLSHost.java}
 
-\subsubsection*{Server-side}
+\noindent 
+The listener also shutsdown outbound when no further TLS records will be produced:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    20-25
+  }
+]{code/TLSHost.java}
+
+\noindent
+Inbound application data and shutdown are additionally processed by the listener:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    27-38
+  }
+]{code/TLSHost.java}
+
+\noindent
+(\code{SSLEngineListener.postUnwrap} is called after unwrapping both application and
+handshake data, our guard checks for the latter.) 
+%
+Inbound TLS records are received on another thread and unwrapped:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  firstline=40
+]{code/TLSHost.java}
+
+%\subsubsection*{Client-side}
+\noindent
+We're now ready to define our TLS client:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  literate = {é}{e}1,
+  firstline=14
+]{code/TLSClient.java}
+
+%\subsubsection*{Server-side}
+\noindent
+Our TLS server is similar, with additional code to initialise a certificate (server-side authentication is mandatory) 
+along with an incoming connection:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  firstline=19
+]{code/TLSServer.java}
+
+
+
+\lstset{widthgobble=1*1}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -156,8 +156,8 @@
   literate={\\-}{}{0\discretionary{-}{}{}}
 }
 
-\newcommand{\code}{\lstinline[style=inlinestyle]} 
-%Hack to fix highlighting bug in gtksourceview/GEdit, by adding the following braces {[
+\newcommand{\code}{\lstinline[style=inlinestyle,breakatwhitespace=true]} 
+%This line is a hack to fix highlighting bug in gtksourceview/GEdit, by adding the following brace }
 
 \pagestyle{headings}
 
@@ -195,8 +195,8 @@
 
 
 \author{Ben Smyth}
-\affil{\href{https://cryptostream.ltd/}{Crypto Stream} Ltd. 
-          \& \href{https://x26.io/}{Ampersand} (\href{https://x26.io/}{x26.io} Ltd.), UK}
+\affil{\href{https://tlfs.io/}{tlfs.io} Ltd.\ 
+          \& \href{https://x26.io/}{x26.io} Ltd., UK}
 \date{\today}
 
 
@@ -298,11 +298,10 @@ Tutorial: \url{https://www.youtube.com/watch?v=g_eY7JXOc8U}
 
 \appendix
 %\input{specification}
+\input{handshakeCCS}
 \input{extensions}
 \input{alerts}
 \input{handshakeCR}
-
-
 
 
 %\bibliographystyle{alpha}

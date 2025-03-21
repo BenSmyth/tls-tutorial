@@ -251,7 +251,7 @@ relevant consumer and updates the handshake hash.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\subsection{Here be dragons: Non-blocking I/O}\label{sec:monkeys:SSLEngine}
+\subsection{Here be dragons: Non-blocking I/O}\label{sec:SSLEngine}
 
 J2SE 1.4 added non-blocking I/O and Java SE 5 added non-blocking TLS (\code{SSLEngine}), 
 separating TLS functionality from I/O---Oracle advises ``[this] is an advanced API, 
@@ -734,7 +734,7 @@ Our dummy listener is straightforward:
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\subsubsection{Simplified non-blocking I/O for the masses}
+\subsubsection{Simplified non-blocking I/O for the masses}\label{sec:SSLEngine:madeEasy}
 
 \code{SSLEngine} operates on byte streams, unlike \code{SSLSocket} (which uses sockets), 
 programmers are responsible for transmission of streams; extending \code{SSLEngineHost}, 
@@ -760,7 +760,7 @@ The listener also shutsdown outbound when no further TLS records will be produce
 ]{code/TLSHost.java}
 
 \noindent
-Inbound application data and shutdown are additionally processed by the listener:
+Inbound application data and shutdown are additionally managed by the listener:
 
 \lstinputlisting[
   frame=none,
@@ -796,7 +796,7 @@ We're now ready to define our TLS client:
 %\subsubsection*{Server-side}
 \noindent
 Our TLS server is similar, with additional code to initialise a certificate (server-side authentication is mandatory) 
-along with an incoming connection:
+and an incoming connection:
 
 \lstinputlisting[
   frame=none,
@@ -812,7 +812,7 @@ along with an incoming connection:
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\subsubsection*{We're not alone.}
+\subsubsection*{We're not alone}
 
 Alex Karnezis's \href{https://github.com/alkarn/sslengine.example}{sslengine.example} makes a 
 similar exposition of \code{SSLEngine}. 

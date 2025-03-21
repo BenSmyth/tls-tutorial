@@ -1,7 +1,5 @@
 \section{Handshake protocol}\label{sec:handshake}
 
-
-
 A client initiates the handshake protocol from an initial context detailing the client's 
 expectations, e.g., willingness to use particular cryptographic primitives and parameters.
 %Similarly, a server participates in the handshake protocol with an initial context too. 
@@ -9,10 +7,6 @@ A server participates with a similar initial context.
 Those contexts evolve during the handshake protocol, to reach agreement on cryptographic
 primitives and parameters, along with shared keys.
 (The protocol may abort if the endpoints cannot reach agreement.)
-
-
-\ifPresentationNotes\marginpar{Styling of \texttt{tcolorbox}s could be better}\fi
-
 
 \begin{tcolorbox}
 Client and server contexts are implemented by classes \code{ClientHandshakeContext} and
@@ -22,8 +16,3 @@ Those classes are both parameterised by instances of classes \code{SSLContextImp
 \code{SSLContext}) and \code{TransportContext} (which also implements empty 
 interface \code{ConnectionContext}), which define initial contexts.
 \end{tcolorbox}
-
-
-
-
-

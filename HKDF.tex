@@ -88,10 +88,10 @@ since it can be stored in extension \TLScookie\ (\S\ref{sec:HRR}).\footnote{%
 
 \begin{tcolorbox}
 Transcript hashing is implemented by class \code{HandshakeHash} (Listing~\ref{lst:HandshakeHash}).
-Instances of that class form part of the active client and server contexts (instantiated by classes 
-\code{SSL\-Engine\-Impl} and \code{SSL\-Socket\-Impl}), which are updated by classes 
-\code{SSL\-Engine\-Input\-Record} and \code{SSL\-Engine\-Output\-Record}, respectively classes 
-\code{SSL\-Socket\-Input\-Record} and \code{SSL\-Socket\-Output\-Record}. Moreover, in the case 
+Instances of that class form part of the active client and server contexts (instantiated by class 
+\code{SSL\-Socket\-Impl} (or \code{SSL\-Engine\-Impl}), which is updated by classes 
+\code{SSL\-Socket\-Input\-Record} and \code{SSL\-Socket\-Output\-Record} (respectively classes 
+\code{SSL\-Engine\-Input\-Record} and \code{SSL\-Engine\-Output\-Record})). Moreover, in the case 
 of a \HelloRetryRequest\ message, it is updated by class 
 \code{Server\-Hello.T13\-Hello\-Retry\-Request\-Consumer} (Listing~\ref{lst:T13HelloRetryRequestConsumerB})
 and by class \code{HelloCookieManager} (Listing~\ref{lst:T13HelloCookieManager}), when consuming any 

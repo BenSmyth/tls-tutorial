@@ -175,7 +175,10 @@ must include additional extensions depending on the key exchange mode: For ECDHE
 \TLSkeyShare\ is included in association with the server's key share, which must 
 be in the group selected by the server from \ClientHello.\TLSsupportedGroups; 
 for PSK-only, extension \TLSpsk\ is included in association with 
-the pre-shared key identifier selected by the server from \ClientHello.\TLSpsk; 
+%the pre-shared key identifier selected by the server from \ClientHello.\TLSpsk, 
+%expressed as an index into the client's list
+the server's selected pre-shared key identifier expressed as an index into 
+\ClientHello.\TLSpsk;
 and for PSK with (EC)DHE, both of those extensions are included.
 Additional extensions are sent separately 
 in the \EncryptedExtensions\ message.

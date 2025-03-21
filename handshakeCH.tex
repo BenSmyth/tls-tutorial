@@ -1,12 +1,5 @@
 \subsection{\ClientHello}\label{sec:handshakeCH}\label{sec:CH}
 
-\ifPresentationNotes
-\marginpar{Maybe customise use of \texttt{lstinline}, which is wrapped inside 
-  command \texttt{code} (defined in \texttt{main-tls-intro.tex}), to improve inline code listings.\\
-  \textbf{Dear \LaTeX\ guru}, Please fix this, it will make reading this manuscript
-  far easier for you (and everyone else). Please also fix other presentational/formatting issues.}
-\fi
-
 The handshake protocol is initiated by a \ClientHello\ message, %(specified in Appendix~\ref{sec:specification})
 comprising the following fields:
 
@@ -28,9 +21,10 @@ comprising the following fields:
 
 \item \TLSrandom: A 32 byte nonce.
 
-\item \TLSlegacySessionId: A zero-length vector, except to 
-  resume an earlier pre-TLS 1.3 session or for ``compatibility 
-  mode.'' (Previous versions of TLS used this field for 
+\item \TLSlegacySessionId: A zero-length vector, except for 
+  compatibility mode (Appendix~\ref{sec:compatibilityMode}) 
+  or to resume an earlier pre-TLS 1.3 session. 
+  (Previous versions of TLS used this field for 
   ``session resumption.'' In TLS 1.3, that feature has been 
   merged with pre-shared keys.)
   %Again, the field remains for backwards compatibility.)

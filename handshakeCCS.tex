@@ -1,0 +1,73 @@
+\section{Compatibility mode}\label{sec:compatibilityMode}
+
+%%There's a nice write-up in https://blog.cloudflare.com/why-tls-1-3-isnt-in-browsers-yet/
+
+\begin{sloppypar}
+TLS 1.3 removed \TLSlegacySessionId\ and \ChangeCipherSpec, which have been present since 
+SSLv3. Their removal caused an intolerable increase in connection failures. To reduce 
+failures, implementations are permitted to make TLS 1.3 look more like TLS 1.2: A client 
+generates a 32-byte \TLSlegacySessionId. A server sends a dummy \ChangeCipherSpec\ 
+immediately after its \ServerHello\ or \HelloRetryRequest\ message. A client also sends 
+a dummy \ChangeCipherSpec, either immediately before their second flight (e.g., after 
+consuming a \ServerHello\ or \HelloRetryRequest\ message) when there's no early data, or 
+immediately after their (first) \ClientHello\ otherwise.
+\end{sloppypar}
+
+\begin{tcolorbox}
+Class \code{ClientHello.ClientHelloKickstartProducer} generates a 32-byte \TLSlegacySessionId\ 
+(Lines 557--572, omitted from Listing~\ref{lst:ClientHelloKickstartProducer}). 
+Class \code{ServerHello.T13ServerHelloProducer} calls method \code{changeWriteCiphers}
+(Lines 671~\& 672, Listing~\ref{lst:T13ServerHelloProducerD}) to produce a dummy \ChangeCipherSpec, 
+which is queued for transmission before further data.
+Class \code{ServerHello.T13ServerHelloConsumer} similarly calls \code{changeWriteCiphers}. 
+That class also makes the active context ready to receive and discard the server's dummy 
+\ChangeCipherSpec\ (Lines 1335--1337, omitted from Listing~\ref{lst:T13ServerHelloConsumer}).
+Class \code{ClientHello.T13ClientHelloConsumer} does the same for the client's dummy \ChangeCipherSpec.
+Compatibility mode can be disabled with \code{System.setProperty("jdk.tls.client.useCompatibilityMode", "false")}.
+\end{tcolorbox}
+
+\begin{sloppypar}
+Compatibility mode is partially negotiable: A client decides whether to provide a non-empty
+\TLSlegacySessionId\ (the server echo's the client's value). A client may send a dummy 
+\ChangeCipherSpec\ in-between sending a \ClientHello\ message and receiving a \Finished\ 
+message. For an empty \TLSlegacySessionId, a server may similarly send a dummy 
+\ChangeCipherSpec\ in-between receiving \ClientHello\ and \Finished\ messages. 
+(For non-empty \TLSlegacySessionId, the server must send a dummy \ChangeCipherSpec\
+as described above.) \ChangeCipherSpec\ must be dropped without processing.
+\end{sloppypar}
+
+\begin{comment}
+TL;DR. A complete trace differs from our opening figure (as described above):
+
+        -----CH----->
+        <-----SH-----
+        <----CCS-----
+        <--EE...FIN-- 
+        -----CCS---->
+        -----FIN---->
+        <----NST-----
+
+Verbose. Digging in:
+
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.362 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 handshake, length = 378              -----CH----->
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.390 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 handshake, length = 378                             -----CH----->
+javax.net.ssl|DEBUG|0D|Thread-2|2022-05-25 11:25:47.468 CEST|EncryptedExtensions.java:137|Produced EncryptedExtensions message 
+javax.net.ssl|DEBUG|0D|Thread-2|2022-05-25 11:25:47.582 CEST|CertificateMessage.java:1022|Produced server Certificate message 
+javax.net.ssl|DEBUG|0D|Thread-2|2022-05-25 11:25:47.636 CEST|CertificateVerify.java:1111|Produced server CertificateVerify handshake message 
+javax.net.ssl|DEBUG|0D|Thread-2|2022-05-25 11:25:47.639 CEST|Finished.java:767|Produced server Finished handshake message 
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.646 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 handshake, length = 122                           <-----SH-----
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.649 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 change_cipher_spec, length = 1                    <----CCS-----
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.650 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 handshake, length = 122                <-----SH-----
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.650 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 handshake, length = 1256                          <--EE...FIN--
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.668 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 change_cipher_spec, length = 1       -----CCS---->
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.670 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 change_cipher_spec, length = 1         <----CCS-----    
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.705 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 change_cipher_spec, length = 1                      -----CCS---->
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.711 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 application_data, length = 1289        <--EE...FIN--
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.758 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 handshake, length = 52               -----FIN---->
+CLIENT, POST-WRAP: Status = OK HandshakeStatus = FINISHED
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.760 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 application_data, length = 85                       -----FIN---->
+javax.net.ssl|DEBUG|0C|Thread-1|2022-05-25 11:25:47.767 CEST|SSLEngineOutputRecord.java:529|WRITE: TLSv1.3 handshake, length = 50                            <----NST-----
+SERVER, POST-WRAP: Status = OK HandshakeStatus = FINISHED
+javax.net.ssl|DEBUG|0B|Thread-0|2022-05-25 11:25:47.770 CEST|SSLEngineInputRecord.java:214|READ: TLSv1.2 application_data, length = 83          <----NST-----
+CLIENT, POST-UNWRAP: Status = OK HandshakeStatus = FINISHED
+\end{comment}

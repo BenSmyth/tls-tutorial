@@ -8,13 +8,16 @@ was developed over four years by a team of almost one hundred security experts
 from more than forty institutions, including tech behemoths Amazon, Apple, Google, 
 IBM, and Microsoft. \ifPresentationNotes \textcolor{red}{Part of this is probably 
 better placed elsewhere.} \fi
-Their work involved iterating over the subtle 
-details to ensure that security objectives were achieved. 
-JSSE abstracts away those subtleties to provide programmers with a high-level, 
-low-risk means to establish secure communication, without the complexities of underlying 
+They iterated over subtle details to ensure security objectives are achieved.
+JSSE abstracts away those subtleties to provide programmers a high-level, 
+low-risk means to secure communication, without the complexities of underlying 
 OpenJDK algorithms.
 We present toy applications that demonstrate the use of JSSE (Section~\ref{sec:monkeys}), 
 before delving into the details (Section~\ref{sec:SunJSSE}).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsection{Examples for code monkeys: Toy client and server}\label{sec:monkeys}
 
@@ -22,11 +25,15 @@ before delving into the details (Section~\ref{sec:SunJSSE}).
 \marginpar{``channel'' (throughout) is perhaps too academic}
 \fi
 
-JSSE trivialises the development of toy applications. For instance, the following code 
+JSSE trivialises development. For instance, the following code 
 snippet establishes a TLS socket:\footnote{%
   Prepending the snippet with 
     \code{System.setProperty("javax.net.debug", "ssl handshake verbose")}
-  prints additional information, which can be useful.}
+  or 
+    \code{System.setProperty("javax.net.debug", "all")}
+  prints additional information, which can be useful. 
+  (For further details, see \url{https://docs.oracle.com/javase/8/docs/technotes/guides/security/jsse/ReadDebug.html}.)
+}
 
 \lstinputlisting[
   numbers=none,
@@ -51,7 +58,7 @@ request and response is protected:
 ]{code/JSSEClient.java}
 
 \noindent
-JSSE uses a ``provider''-based architecture, whereby services (e.g., \code{SSLSocket} and \code{SSLSocketFactory})
+JSSE uses a provider-based architecture, whereby services (e.g., \code{SSLSocket} and \code{SSLSocketFactory})
 and implementations (e.g., \code{SSLSocketImpl} and \code{SSLSocketFactoryImpl}) are defined independently, 
 and are (typically) instantiated by factory methods (e.g., \code{SSLSocketFactory.getDefault()}). Hence, 
 programmers need not concern themselves with the inner-workings of implementations, such as those provided 
@@ -85,7 +92,7 @@ That context can be used to establish a TLS socket:
 
 \noindent
 Communication over the TLS socket is protected, for example, any incoming character is
-protected as is any subsequent response:
+protected, as is any subsequent response:
 
 \lstinputlisting[
   numbers=none,
@@ -131,15 +138,12 @@ where \code{InetAddress.getLocalHost()} is 127.0.1.1 and filename \code{store} c
 be replaced with alternatives. Since the above key store is 
 self-signed, it must be added to the Java virtual machine's trust store, which can 
 be achieved by prepending client code with the following:
-\code{System.setProperty( "javax.net.ssl.trustStore", "store" ); System.setProperty( "javax.net.ssl.trustStorePassword", <<pwd>> )}.
+\code{System.setProperty( "javax.net.ssl.trustStore", "store"); System.setProperty("javax.net.ssl.trustStorePassword", "pwd")}.
 
 
-
-
-
-
-
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsection{SunJSSE provider for architects, researchers, and the curious}\label{sec:SunJSSE}
 
@@ -161,7 +165,7 @@ instance of \code{SSLSocketImpl}. Method \code{SSLSocketImpl.startHandshake()} p
 ]{listings/SSLSocketImpl.java}
 
 \noindent
-Line~395 indirectly calls method \code{ClientHello.kickstartProducer.produce} (\S\ref{sec:CH}) and processes 
+Line~395 indirectly calls method \code{ClientHello.kickstartProducer.produce()} (\S\ref{sec:CH}) and processes 
 responses (Line~401--403) as follows:
 
 \lstinputlisting[
@@ -196,6 +200,7 @@ method \code{SSLTransport.decode} (Line~1152--1153) as follows:
  }
 ]{listings/SSLTransport.java}
 
+\begin{sloppypar}
 \noindent
 Line~108 parses a handshake (or an alert) record header and calls method 
 \code{SSLSocketInputRecord.decodeInputRecord}, providing the header as 
@@ -203,6 +208,7 @@ input. That method parses and decodes the complete record, which is then
 processed by method \code{TransportContext.dispatch} (Line~164).
 %
 Method \code{SSLSocketInputRecord.decodeInputRecord} proceeds as follows:
+\end{sloppypar}
 
 \lstinputlisting[
   frame=none,
@@ -234,22 +240,526 @@ Finally, method \code{TransportContext.dispatch} proceeds as follows:
  }
 ]{listings/TransportContext.java}
 
+\begin{sloppypar}
 \noindent
 Line~178 indirectly calls \code{HandshakeContext.dispatch} on variables
 \code{handshakeType} and \code{plaintext.fragment}, which calls the 
 relevant consumer and updates the handshake hash.
+\end{sloppypar}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Here be dragons: Non-blocking I/O}\label{sec:monkeys:SSLEngine}
+
+J2SE 1.4 added non-blocking I/O and Java SE 5 added non-blocking TLS (\code{SSLEngine}), 
+separating TLS functionality from I/O---Oracle advises ``[this] is an advanced API, 
+and is not appropriate for casual use,''\footnote{\url{https://docs.oracle.com/en/java/javase/17/security/java-secure-socket-extension-jsse-reference-guide.html}} \emph{hic sunt dracones}:
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection{Encapsulating \code{SSLEngine} complexity for non-casual users}
+
+TLS is initiated by sending a \ClientHello\ message. 
+\ServerHello\ and \EncryptedExtensions\ messages are then received,
+or a \HelloRetryRequest\ message is. 
+Upon receiving a first message, either receive a further message, or send one. 
+State is already non-trivial, and, as can be inferred from Figure~\ref{fig:handshake}, 
+things only get more complex, without even considering further features 
+such as \NewSessionTicket\ and \KeyUpdate\ messages, nor closure and error alerts.
+Such states are represented by \code{SSLEngineResult}: 
+%
+\begin{itemize}
+\item
+  Data must be sent before handshaking can continue (\code{NEED_WRAP}), 
+  e.g., after calling \code{SSLEngine.beginHandshake()} to produce a \ClientHello\ message.
+\item
+  Data must be received before handshaking can continue (\code{NEED_UNWRAP}), 
+  e.g., having called \code{SSLEngine.wrap()} to buffer the aforementioned \ClientHello.
+\item
+  Blocking operation is required before handshaking can continue (\code{NEED_TASK}),
+  e.g., to perform certificate validation.
+\item
+  Handshaking has just complete (\code{FINISHED}), 
+  e.g., upon receipt of a \Finished\ message.
+\item
+  No handshaking in progress (\code{NOT_HANDSHAKING}),
+  e.g., after completion, when application data can be sent.
+\end{itemize}
+%
+The separation of TLS functionality from I/O requires guiding \code{SSLEngine} through those states;
+herein, \code{SSLEngineHost} is introduced to navigate states.
+
+\lstset{widthgobble=0*0} 
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  commentstyle=\normalfont,
+  linerange={
+    12-41
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+We buffer outbound \& inbound application data,
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  commentstyle=\ttfamily,
+  inputencoding = utf8,
+  extendedchars = true,
+  literate = {Λ}{$\land$}1 {V}{$\vee$}1,
+  linerange={
+    43-44
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+encode outbound application data to TLS records 
+\& decode TLS records to inbound application data 
+(with methods \code{SSLEngine.wrap()} \& \code{SSLEngine.unwrap()}, respectively),
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  commentstyle=\ttfamily,
+  inputencoding = utf8,
+  extendedchars = true,
+  literate = {Λ}{$\land$}1 {V}{$\vee$}1,
+  linerange={
+    45-61
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+and buffer outbound and inbound TLS records:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    62-66
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+We don't concern ourselves with (transport layer) communication of outbound 
+TLS records, nor consumption of inbound application data; such operations
+are handed-off to a listener:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    69-70
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+TLS operations are performed on a separate thread, we block operations 
+until required, 
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    72-73
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+using locks to avoid concurrent manipulation of buffers \code{outAppBuffer} and \code{inPacketBuffer}:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    75-78
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Our constructor takes an \code{SSLEngine} as input, initiates buffers, a dummy listener,
+and a thread for TLS operations (blocked until required):
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    80-95
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+(We resize our outbound application-data buffer and inbound TLS-record buffer
+when needed.) 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Navigating TLS state}
+
+We execute until the underlying \code{SSLEngine} is shutdown, 
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    97-98
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+blocking until operation is required:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    99-99
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Upon demand for a TLS operation,
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    101-104
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+we handshake, if that's what \code{SSLEngine} is ready for.
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    105-106
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Encode application data (by overloading \code{HandshakeStatus.NEED_WRAP} to include
+such encoding), if there's outbound application data (i.e., data has been written 
+to buffer \code{outAppBuffer}, advancing the buffer's position---at which further 
+data can be written---beyond zero).
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    107-108
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Decode TLS records (by overloading \code{HandshakeStatus.NEED_UNWRAP} to include
+such decoding), if there's inbound TLS records.
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    109-116
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Initiate closure, if method \code{closeOutbound()} has been called (setting boolean 
+\code{closeBound}).
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    117-121
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+We iterate over the above until: Handshaking has complete, there's no 
+outbound application data nor inbound TLS records buffered, and any closure request 
+has been processed. The outer loop terminates when \code{SSLEngine} is shutdown, 
+otherwise the inner-loop is blocked until operation is required.
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    122-123
+  }
+]{code/SSLEngineHost.java}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Encoding outbound}
+
+Outbound TLS records are encoded by \code{SSLEngine.wrap()}:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    125-140
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Method \code{wrap()} reads from outbound application-data buffer \code{outAppBuffer}
+and writes to TLS-record buffer \code{outPacketBuffer}. The latter is first 
+prepared for writing---method \code{clear()} sets the buffer's \emph{position} 
+(at which a byte can be written, or read) to zero and \emph{limit} (beyond which should 
+not be written, nor read) to the buffer's capacity. Outbound application buffer 
+\code{outAppBuffer} is ready to be written to, hence, we \emph{flip} the contents (set 
+the buffer's limit to the current position and then set the position to zero). 
+Method \code{wrap()} will consume as much outbound application data as possible 
+(governed by internal state), writing data to TLS record buffer \code{outPacketBuffer}, 
+updating buffer positions to reflect consumption and production. A non-zero positioned 
+application-data buffer will result from a partial read and \code{compact()} moves bytes 
+(between a position and limit) to the beginning of a buffer. 
+Method \code{SSLEngine.wrap()} returns a description of the operation's status coupled 
+with the handshaking state resulting from encoding, which we process:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    142-146 
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Documentation is scant, \code{CLOSED} indicates: ``The operation just closed this 
+side of the SSLEngine, or the operation could not be completed because it was 
+already closed.'' Presumably the former is only produced by \code{SSLEngine.unwrap()} 
+upon receipt of a closure alert.\footnote{%
+  Documentation seems obsolete: Prior to TLS 1.3, a closure alert required the 
+  receiver to immediately send a closure alert of their own---``clos[ing] this 
+  side of the SSLEngine''---whereas only the inbound direction must be closed 
+  in TLS 1.3 (to avoid truncating outbound messages). (Documentation of   
+  \code{SSLEngine.isInboundDone()} seems similarly obsolete, ``Returns: true if the 
+  SSLEngine will not consume anymore network data (and by implication, will not 
+  produce any more application data.).'')
+  \ifImplNotes \textcolor{red}{TO DO: Report.} \fi
+}
+The latter includes \code{SSLEngine.wrap()} partially completing, suggesting some 
+(but not all) handshake messages are encoded. 
+%(Respectively, suggesting \code{SSLEngine.unwrap()} decodes some but not all TLS records.) 
+Upon inspection of source code (\code{SSLEngineImpl.java}, Lines~114--266), we 
+discover \code{CLOSED} indicates either: no messages were encoded, or all messages 
+were encoded but no further messages will be. Hence, we treat cases \code{OK} and
+\code{CLOSED} almost the same---transmitting any TLS records produced by \code{wrap()}. 
+(Application data buffered for wrapping cannot be transmitted once closed, 
+case \code{CLOSED} additionally sets the buffer's position to zero, avoiding method 
+\code{doTLS()} infinitely looping.)
+TLS record buffer \code{outPacketBuffer} is handed-off to our listener:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    147-151
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Some housekeeping:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    153-171
+  }
+]{code/SSLEngineHost.java}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Decoding inbound}
+
+Inbound application data---decoded by \code{SSLEngine.unwrap()}---is handed-off to 
+our listener; the following code is similar to the above, with method \code{unwrap()}
+reading from inbound TLS-record buffer \code{inPacketBuffer} and writing to application 
+buffer \code{inAppBuffer}.
 
 
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  literate = {\ \ \ \ \ \ \ \ \ \ //TO\ DO:\ Be\ intelligent}{\ }1,
+  linerange={
+    173-217
+  }
+]{code/SSLEngineHost.java}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Delegated tasks \& housekeeping}
+
+Operations requiring time-consuming or blocking tasks are processed on separate threads:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    219-223
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+For completeness, some housekeeping:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    225-235
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+(Documentation asserts \code{FINISHED} is only produced by \code{SSLEngineResult.getHandshakeStatus()}, 
+i.e., after calling \code{SSLEngine.wrap()} or \code{SSLEngine.unwrap()}, and 
+\code{FINISHED} is never produced by \code{SSLEngine.getHandshakeStatus()}.\footnotemark\ 
+Documentation also asserts \code{NEED_UNWRAP_AGAIN} is only relevant for DTLS.)
+
+\footnotetext{%
+ \code{SSLEngine} and TLS parlance deviate: \code{HandshakeStatus.FINISHED} 
+  reports \code{SSLEngine}'s willingness to encode application data, as opposed 
+  to whether TLS permits application-data encoding---indeed, TLS permits a 
+  server to encode application data after unwrapping a (client) \Finished\ message, 
+  but OpenJDK defers reporting completion until wrapping message \NewSessionTicket,
+  which seems non-standard. Other implementations may vary. (A OpenJDK client reports
+  completion upon wrapping a \Finished\ message, as expected.)
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Buffering outbound application data and inbound TLS records}
+
+Outbound application data is buffered:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    237-246
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+As are inbound TLS records:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    248-257
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Wherein:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    259-263
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+And \code{semaphore.release()} is invoked to unblock our \code{while}-loop.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Initiate handshake}
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    265-276
+  }
+]{code/SSLEngineHost.java}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Closure}
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    278-300
+  }
+]{code/SSLEngineHost.java}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{Offloading I/O to \code{SSLEngineHostListener}}
+
+Resulting outbound TLS records and inbound application data are handled by a listener, 
+instantiated by the following method.
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  linerange={
+    302-304
+  }
+]{code/SSLEngineHost.java}
+
+\noindent
+Our dummy listener is straightforward:
+
+\lstinputlisting[
+  frame=none,
+  nolol=true,
+  firstline=306
+]{code/SSLEngineHost.java}
+
+\noindent
+(Subclasses add functionality.)
 
 
+\lstset{widthgobble=1*1}
 
-%\subsection{Here be dragons: Hacking OpenJDK's TLS}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%TLS is a subtle, complex beast which has proven rather difficult to secure.
-%JSSE strips away those subtleties to provide programmers with a high-level, 
-%low-risk means to establish secure communication: Programmers need not
-%expose themselves to the complexities of underlying OpenJDK algorithms, 
-%Doing otherwise poses a threat to user security. Nonetheless, hackers like 
-%to play. Proceed at your own risk. \emph{Hic sunt dracones}.
+\subsubsection{Simplified non-blocking I/O for the masses}
 
+\textcolor{red}{Give exemplar client \& server here}
 
+\subsubsection*{Client-side}
+
+\subsubsection*{Server-side}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection*{We're not alone.}
+
+Alex Karnezis's \href{https://github.com/alkarn/sslengine.example}{sslengine.example} makes a 
+similar exposition of \code{SSLEngine}. 
+%
+Kashif Razzaqui's \href{https://github.com/kashifrazzaqui/sslfacade/}{sslfacade} provides a 
+higher-level API, with outgoing TLS records and incoming application data being passed to 
+a user-defined listener.
+%
+Mariano Barrios's \href{https://github.com/marianobarrios/tls-channel}{TLS Channel} implements
+interface \code{ByteChannel} over \code{SSLEngine}, providing the same interface as 
+\code{SocketChannel}, the non-blocking counterpart to \code{Socket} (of which \code{SSLSocket}
+is a subclass).
+%
+These projects separate handshaking from transmission of application data, we do not.
